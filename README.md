@@ -81,7 +81,7 @@ Continuous loop:
 - [x] **Mute On/Off:** Mute on/off microphone.
 - [ ] **State Synchronization (Completion Sync):** Send system events to Gemini when a video generation request completes so the model knows the media is available.
 - [ ] **State Synchronization (Attention Sync):** Notify Gemini when the user changes their active view (e.g., switches between live camera and looking at a generated video).
-- [ ] **State Synchronization (Memory/Tooling):** Add a `query_media_cache` tool for Gemini to check the user's media history and pull up videos to co-review with the user.
+- [X] **State Synchronization (Memory/Tooling):** Add a `query_media_cache` tool for Gemini to check the user's media history and pull up videos to co-review with the user.
 - [ ] **Sharing Capabilities:** Add the ability to share (export) generated images/videos externally, as well as an upload/share mechanism (import) for users to send existing images or videos *to* Gemini for context understanding if they can't point their live camera at it.
 - [ ] **Task State Machine:** Implement robust workflow state logging for deterministic physical tasks (e.g., changing a tire).
 - [ ] **Safety Guidelines:** Define strict system safety instructions for each critical step in the AI orchestration prompts.
