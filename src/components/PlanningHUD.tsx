@@ -11,7 +11,7 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
   const { current_goal, next_step, safety_checks, estimated_effort, progress_pct } = plan;
 
   return (
-    <div className="space-y-4 mb-6">
+    <div className="space-y-4 mb-6 shrink-0">
       {/* Current Mission Goal */}
       <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl p-4 backdrop-blur-md relative overflow-hidden group">
         <div className="absolute top-0 right-0 p-2 opacity-20">

@@ -96,7 +96,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Central Media Area (66% width) */}
-          <div className="lg:col-span-8 relative h-auto md:h-[540px] flex flex-col md:flex-row gap-6">
+          <div className="lg:col-span-8 relative h-auto md:h-[720px] flex flex-col md:flex-row gap-6">
             
             {/* Gallery (shows up on the left side or top depending on screen size) */}
             <AnimatePresence>
@@ -152,7 +152,7 @@ export default function Home() {
           </div>
 
           {/* Right AI Streaming Sidebar (33% width) */}
-          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 h-[540px] p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 h-[720px] p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
             <AIStreamSidebar 
                 messages={messages} 
                 isSpeaking={isSpeaking} 
