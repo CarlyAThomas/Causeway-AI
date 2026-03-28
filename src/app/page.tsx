@@ -41,6 +41,9 @@ export default function Home() {
     sendSystemEvent,
     taskPlan,
     uploadStaticContext,
+    spatialHighlight,
+    isStageFrozen,
+    lastFrame,
     setEgressMuted
   } = useGeminiLive(useCallback(() => {
       if (mainView === 'veo') return veoVideoRef.current;
@@ -192,6 +195,9 @@ export default function Home() {
                                     isCameraOff={isCameraOff} 
                                     onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
                                     tools={taskPlan.required_tools}
+                                    highlight={spatialHighlight}
+                                    isFrozen={isStageFrozen}
+                                    frozenFrame={lastFrame}
                                 />
                             </div>
                             
@@ -360,6 +366,9 @@ export default function Home() {
                         isCameraOff={isCameraOff} 
                         onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
                         tools={taskPlan.required_tools}
+                        highlight={spatialHighlight}
+                        isFrozen={isStageFrozen}
+                        frozenFrame={lastFrame}
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/pip:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[4px]">
                         <button 

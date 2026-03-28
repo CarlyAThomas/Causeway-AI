@@ -37,8 +37,14 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
   const [volume, setVolume] = useState(0);
   const [mediaQueue, setMediaQueue] = useState<MediaRequest[]>([]);
   const [taskPlan, setTaskPlan] = useState<TaskPlan>(INITIAL_PLAN);
+  const [spatialHighlight, setSpatialHighlight] = useState<{ x: number, y: number, label: string } | null>(null);
+  const [isStageFrozen, setIsStageFrozen] = useState(false);
+  const [debugFrame, setDebugFrame] = useState<string | null>(null);
+  const [frozenFrame, setFrozenFrame] = useState<string | null>(null); // State for the temporally-locked frame
   
   const clientRef = useRef<GeminiLiveClient | null>(null);
+  const frameBufferRef = useRef<string[]>([]); // "Temporal Lock" buffer (Last 5 Analysis Snapshots)
+  const lastAnalyzedFrameRef = useRef<string | null>(null);
   const isMutedRef = useRef(isMuted);
   const isAiTurnLockedRef = useRef(true);
   const isWaitingForModelResponseRef = useRef(false); // [STABILITY LOCK]: Pause all background sends during Tool Execution
@@ -95,16 +101,19 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
         apiKey, 
         model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
+          CORE DIRECTIVE: You MUST respond EXCLUSIVELY in English at all times.
+          
           FOCUS LOCK: You MUST completely ignore any background noise, side conversations, or other people moving around in the camera frame. Exclusively pay attention to the primary user directly in front of the camera and the specific physical task they are actively working on.
           You are a professional hands-on AI Physical Task Assistant.
-          Respond in English.
           Use the provided camera frames and user audio to give precise, step-by-step instructions.
+          NEVER vocalize, spell out, or speak technical tool names, JSON data, or internal responses (e.g. do not say 'render spatial highlight' or 'status'). Keep your spoken words strictly conversational, human-like, and natural.
 
           THE PLANNING LOOP:
           1. OBSERVE: Detect tools and object states in the video frame. 
-          2. PLAN: Use 'propose_plan' BEFORE media generation to declare your strategy and safety steps.
-          3. ACT: Trigger 'generate_text_to_video' or 'generate_image_to_video' to show the user what to do.
-          4. VERIFY: Confirm completion before moving to the next goal.
+          2. SPATIAL PRECISION: You MUST use the \`render_spatial_highlight\` tool whenever you mention a physical part, tool, or location in the camera frame. Visual anchoring is MANDATORY for precise guidance.
+          3. PLAN: Use 'propose_plan' BEFORE media generation to declare your strategy and safety steps.
+          4. ACT: Trigger 'generate_text_to_video' or 'generate_image_to_video' to show the user what to do.
+          5. VERIFY: Confirm completion before moving to the next goal.
 
           MEDIA HISTORY:
           - You can check what videos have been generated with the \`query_media_cache\` tool.
@@ -200,6 +209,49 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                             return { ...prev, required_tools: nextTools };
                         });
                         clientRef.current?.sendToolResponse(call.id, call.name, "perception updated.");
+                        continue;
+                    }
+
+                    if (call.name === "render_spatial_highlight") {
+                        const { objectName, box_2d } = call.args;
+
+                        // 🚨 THE FIX: Reverting to AI native Y-first format [ymin, xmin, ymax, xmax]
+                        // This ensures horizontal/vertical axes aren't swapped.
+                        const [ymin, xmin, ymax, xmax] = box_2d;
+
+                        // Calculate center on the specific 0-1000 scale
+                        const centerX = (xmin + xmax) / 2;
+                        const centerY = (ymin + ymax) / 2;
+
+                        console.log(`🎯 Spatial Target: [${objectName}] at {x: ${centerX}, y: ${centerY}} from box:`, box_2d);
+
+                        setSpatialHighlight({
+                            x: centerX,
+                            y: centerY,
+                            label: objectName
+                        });
+
+                        // [TEMPORAL SYNC]: Freeze the stage on the frame from the history buffer
+                        // Step back 4 analysis steps (~1000ms at 250ms/frame) to find the frame Gemini actually 'saw'
+                        const matchedFrame = frameBufferRef.current[frameBufferRef.current.length - 4] || frameBufferRef.current[0];
+                        
+                        if (matchedFrame) {
+                            setFrozenFrame(matchedFrame);
+                            setIsStageFrozen(true);
+                        }
+
+                        // 8-Second Auto-Clear Lifecycle
+                        setTimeout(() => {
+                            setSpatialHighlight(null);
+                            setIsStageFrozen(false);
+                            setFrozenFrame(null);
+                        }, 8000);
+
+                        clientRef.current?.sendToolResponse(
+                            call.id, 
+                            call.name, 
+                            { result: "success" }
+                        );
                         continue;
                     }
 
@@ -587,9 +639,16 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
             const isProtcolSafe = statusRef.current === 'listening' && !isWaitingForModelResponseRef.current;
             
             if (activeVideo && clientRef.current && isProtcolSafe) {
-                clientRef.current.sendVideoFrame(activeVideo);
+                clientRef.current.sendVideoFrame(activeVideo, (base64) => {
+                    // Update buffer (Keep last 12 analysis snapshots -> ~3 seconds)
+                    frameBufferRef.current.push(base64);
+                    if (frameBufferRef.current.length > 12) {
+                        frameBufferRef.current.shift();
+                    }
+                    setDebugFrame(base64); // "Truth-Box" Debugging
+                });
             }
-        }, 500);
+        }, 250);
     }, 300);
 
     return () => {
@@ -702,6 +761,10 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
     sendSystemEvent, 
     taskPlan, 
     uploadStaticContext,
+    spatialHighlight,
+    isStageFrozen,
+    debugFrame,
+    lastFrame: frozenFrame,
     setEgressMuted: (muted: boolean) => clientRef.current?.setEgressMuted(muted)
   };
 }

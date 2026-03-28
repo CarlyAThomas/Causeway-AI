@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import VisionOverlay from './VisionOverlay';
+import SpatialHighlightOverlay from './SpatialHighlightOverlay';
 
 const CameraStream = forwardRef<HTMLVideoElement, { 
   id?: string;
@@ -11,9 +12,41 @@ const CameraStream = forwardRef<HTMLVideoElement, {
   isCameraOff?: boolean;
   onToggleCamera?: () => void;
   tools?: any[];
-}>(({ id, isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera, tools = [] }, ref) => {
+  highlight?: { x: number, y: number, label: string } | null;
+  isFrozen?: boolean;
+  frozenFrame?: string | null;
+  isMirrored?: boolean; // NEW: Support mirroring logic for Spatial Drift fix
+  debugFrame?: string | null; // NEW: "Truth-Box" Diagnostic
+}>(({ id, isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera, tools = [], highlight = null, isFrozen = false, frozenFrame = null, isMirrored: propMirrored = false, debugFrame = null }, ref) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [intrinsicSize, setIntrinsicSize] = useState({ width: 1280, height: 720 });
+  const [isMirrored, setIsMirrored] = useState(propMirrored);
+
+  // Sync mirroring with track capabilities (Auto-Detect Selfie Mode)
+  useEffect(() => {
+    if (localVideoRef.current?.srcObject) {
+        const stream = localVideoRef.current.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        
+        // If front-facing, mirror it!
+        if (settings.facingMode === 'user') {
+            setIsMirrored(true);
+        } else {
+            setIsMirrored(propMirrored);
+        }
+    }
+  }, [propMirrored, isCameraOff]);
+
+  const handleLoadedMetadata = () => {
+    if (localVideoRef.current) {
+        setIntrinsicSize({
+            width: localVideoRef.current.videoWidth,
+            height: localVideoRef.current.videoHeight
+        });
+    }
+  };
 
   // Expose the internal video element to the parent ref
   useImperativeHandle(ref, () => localVideoRef.current as HTMLVideoElement);
@@ -73,11 +106,75 @@ const CameraStream = forwardRef<HTMLVideoElement, {
             autoPlay
             playsInline
             muted
-            className={`w-full h-full object-cover transition-opacity duration-500 ${isCameraOff ? 'opacity-0' : 'opacity-100'}`}
+            onLoadedMetadata={handleLoadedMetadata}
+            className={`w-full h-full object-cover transition-opacity duration-500 ${(isCameraOff || isFrozen) ? 'opacity-0' : 'opacity-100'}`}
+            style={{ 
+                transform: isMirrored ? 'scaleX(-1)' : 'none',
+                filter: isFrozen ? 'grayscale(0.5) contrast(1.2)' : 'none'
+            }}
           />
+
+          {/* Frozen Analysis Frame (Snapshot Overlay) */}
+          {isFrozen && frozenFrame && (
+            <div className="absolute inset-0 z-10 animate-pulse-slow">
+                <img 
+                    src={frozenFrame} 
+                    className="w-full h-full object-cover"
+                    alt="Frozen Snapshot"
+                    style={{ transform: isMirrored ? 'scaleX(-1)' : 'none' }}
+                />
+                
+                {/* Scanning HUD Indicators */}
+                <div className="absolute inset-0 border-2 border-rose-500/30 glow-rose-sm pointer-events-none" />
+                
+                <div className="absolute top-12 left-6 flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                    <span className="text-[10px] font-black tracking-[0.4em] text-rose-500 uppercase">
+                        Scanning Intelligence...
+                    </span>
+                </div>
+
+                <div className="absolute top-12 right-6">
+                    <span className="text-[10px] font-mono text-rose-500/60 uppercase">
+                        Frame-Lock Active
+                    </span>
+                </div>
+            </div>
+          )}
           
+          
+          {/* "Truth-Box" Diagnostic Overlay (Tech Lead Request) */}
+          {!isCameraOff && debugFrame && (
+            <div className="absolute top-4 left-4 z-[60] w-32 md:w-48 aspect-video border-2 border-red-500 shadow-2xl rounded-sm overflow-hidden bg-black">
+                <div className="absolute top-0 left-0 bg-red-500 text-white text-[8px] font-black px-1 uppercase tracking-tighter shadow-sm z-[70]">
+                    Gemini Vision (Cropped)
+                </div>
+                <img 
+                    src={debugFrame} 
+                    className="w-full h-full object-cover" 
+                    alt="Current AI Context"
+                />
+            </div>
+          )}
+
           {/* Vision Perception Highlights */}
-          {!isCameraOff && <VisionOverlay tools={tools} />}
+          {!isCameraOff && (
+            <VisionOverlay 
+                tools={tools} 
+                isMirrored={isMirrored}
+                videoWidth={intrinsicSize.width}
+                videoHeight={intrinsicSize.height}
+            />
+          )}
+
+          {!isCameraOff && (
+            <SpatialHighlightOverlay 
+                highlight={highlight} 
+                isMirrored={isMirrored}
+                videoWidth={intrinsicSize.width}
+                videoHeight={intrinsicSize.height}
+            />
+          )}
           
           {isCameraOff && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 backdrop-blur-sm transition-all duration-500">

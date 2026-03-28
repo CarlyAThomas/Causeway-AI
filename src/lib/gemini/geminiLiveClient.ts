@@ -286,6 +286,22 @@ export class GeminiLiveClient {
                     },
                     required: ["id"]
                   }
+                },
+                {
+                  name: "render_spatial_highlight",
+                  description: "PROACTIVE ANCHORING: Call this whenever you are discussing, identifying, or pointing to a physical object, part, tool, or location in the camera frame. Visual anchoring is MANDATORY for each instructions.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      objectName: { "type": "STRING", "description": "The name of the object you are highlighting." },
+                      box_2d: { 
+                        "type": "ARRAY", 
+                        "items": { "type": "NUMBER" },
+                        "description": "The [ymin, xmin, ymax, xmax] bounding box (normalized 0-1000)." 
+                      }
+                    },
+                    required: ["objectName", "box_2d"]
+                  }
                 }
               ]
             }
@@ -317,16 +333,21 @@ export class GeminiLiveClient {
   /**
    * Captures a frame from the video element and sends it as Base64 JPEG.
    */
-  public sendVideoFrame(videoElement: HTMLVideoElement) {
+  public sendVideoFrame(videoElement: HTMLVideoElement, onFrame?: (base64: string) => void) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
     if (!videoElement || videoElement.readyState < 2) return;
 
+    // [RAW FEED SYNCHRONIZATION]: Removing Cinematic Crop
+    // We now send the full, uncropped sensor frame to Gemini.
+    // This allows the 'Object-Fit: Cover' math in translateCoordinates 
+    // to map directly to the visible UI correctly.
     const canvas = document.createElement('canvas');
-    canvas.width = 640; 
-    canvas.height = 360;
+    canvas.width = videoElement.videoWidth; 
+    canvas.height = videoElement.videoHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Draw the FULL raw frame
     ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
     
     try {
@@ -342,6 +363,9 @@ export class GeminiLiveClient {
         // [ATOMIC LOCK]: Strictly forbid video frames during a context sync (SystemEvent)
         // to prevent Code 1007 modality collisions.
         if (this.isEgressLocked) return;
+
+        // Emit frame for UI "Freezing" / AR continuity
+        if (onFrame) onFrame(base64DataUrl);
 
         const msg = {
           realtimeInput: {
