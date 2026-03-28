@@ -22,7 +22,7 @@ async function callAgent(
 ): Promise<AgentResult> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
   // TODO: confirm exact model ID with organizers (Nano Banana / Gemini Live / etc.)
-  const model = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+  const model = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-live-preview";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const body = {

@@ -13,9 +13,10 @@ interface AIStreamSidebarProps {
   messages: Message[];
   isSpeaking: boolean;
   status: 'listening' | 'thinking' | 'speaking' | 'idle';
+  volume?: number;
 }
 
-export default function AIStreamSidebar({ messages, isSpeaking, status }: AIStreamSidebarProps) {
+export default function AIStreamSidebar({ messages, isSpeaking, status, volume = 0 }: AIStreamSidebarProps) {
   return (
     <div className="flex flex-col h-full max-h-screen">
       {/* Header & Status Panel */}
@@ -34,7 +35,7 @@ export default function AIStreamSidebar({ messages, isSpeaking, status }: AIStre
             </div>
         </div>
 
-        {/* Integrated Animated Waveform */}
+        {/* Integrated Animated Waveform (NOW REACTIVE) */}
         <div className="h-20 flex items-center justify-center gap-1 bg-surface/50 backdrop-blur-md rounded-2xl border border-white/5 relative overflow-hidden group">
             <AnimatePresence mode="wait">
                 {status === 'idle' ? (
@@ -49,24 +50,28 @@ export default function AIStreamSidebar({ messages, isSpeaking, status }: AIStre
                     <motion.div 
                         key="active"
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="flex items-center justify-center gap-1.5 h-full"
+                        className="flex items-center justify-center gap-1.5 h-full px-8 w-full"
                     >
                         {[...Array(16)].map((_, i) => (
                             <motion.div
                                 key={i}
                                 initial={{ height: 4 }}
                                 animate={{ 
-                                    height: status === 'speaking' 
-                                        ? [4, 12, 32, 16, 40, 8, 24][i % 7] 
-                                        : [4, 8, 6, 10, 5, 9, 7][i % 7]
+                                    // Calculate height based on volume if listening, otherwise use mockup for AI speaking
+                                    height: status === 'listening' 
+                                        ? 4 + (volume * (10 + Math.random() * 40)) 
+                                        : status === 'speaking' 
+                                            ? [4, 12, 32, 16, 40, 8, 24][i % 7]
+                                            : 4
                                 }}
                                 transition={{ 
-                                    repeat: Infinity, 
-                                    duration: status === 'speaking' ? 0.5 : 0.8, 
-                                    delay: i * 0.04,
-                                    ease: "easeInOut"
+                                    type: "spring",
+                                    stiffness: 300,
+                                    damping: 30,
+                                    mass: 1
                                 }}
                                 className={`w-1 rounded-full transition-colors duration-500 ${
+                                    status === 'listening' && volume > 0.1 ? 'bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]' :
                                     status === 'speaking' ? 'bg-indigo-400 shadow-[0_0_15px_rgba(129,140,248,0.4)]' : 'bg-white/10'
                                 }`}
                             />

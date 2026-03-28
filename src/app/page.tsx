@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useRef, useCallback } from "react";
+import { motion } from "framer-motion";
 import CameraStream from "@/components/CameraStream";
 import VeoPlayer from "@/components/VeoPlayer";
 import AIStreamSidebar from "@/components/AIStreamSidebar";
@@ -21,7 +21,7 @@ export default function Home() {
     setShowVeo(true);
   }, []);
 
-  const { messages, status, isSpeaking, connect, disconnect } = useGeminiLive(mainVideoRef, onGuideTriggered);
+  const { messages, status, isSpeaking, volume, connect, disconnect } = useGeminiLive(mainVideoRef, onGuideTriggered);
 
   const requestVisualGuide = () => {
     connect();
@@ -41,13 +41,12 @@ export default function Home() {
   return (
     <div ref={constraintsRef} className="min-h-screen bg-background font-sans text-white p-6 md:p-12 lg:p-16 transition-colors duration-500 overflow-hidden relative">
       <main className="max-w-7xl mx-auto space-y-12">
-        {/* Top Grid: Main Focus Area and Status Panel */}
+        {/* Top Grid: Main Media Focus and AI Sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           
-          {/* Central Media Area (75% width) */}
+          {/* Central Media Area (66% width) */}
           <div className="lg:col-span-8 relative min-h-[400px] lg:min-h-[500px]">
             <div className="relative w-full h-full">
-              {/* Primary Content: Either Camera or Veo */}
               <div className="w-full h-full">
                 {showVeo ? (
                   <VeoPlayer />
@@ -60,17 +59,18 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right AI Streaming Sidebar (33% width / lg:col-span-4) */}
+          {/* Right AI Streaming Sidebar (33% width) */}
           <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 min-h-[400px] lg:min-h-[550px] p-8 shadow-2xl backdrop-blur-xl">
             <AIStreamSidebar 
                 messages={messages} 
                 isSpeaking={isSpeaking} 
                 status={status as any} 
+                volume={volume}
             />
           </div>
         </div>
 
-        {/* Bottom Grid: Activity Pills */}
+        {/* Bottom Action Controls */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <button 
             onClick={recenterCamera}
@@ -79,15 +79,18 @@ export default function Home() {
             <span className="relative z-10">Live Feed</span>
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
           </button>
+          
           <button className="bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95">
             Mic Settings
           </button>
+          
           <button 
             onClick={endSession}
             className="bg-red-900/10 text-red-400 h-14 rounded-full border border-red-500/10 text-[11px] font-bold uppercase tracking-widest hover:bg-red-900/30 transition-all active:scale-95"
           >
             End Session
           </button>
+          
           <button 
             onClick={requestVisualGuide}
             disabled={status !== 'idle'}
@@ -102,7 +105,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Minimized PIP Camera Overlay (Draggable & Accelerated) */}
+      {/* Draggable PIP Camera Overlay */}
       <motion.div 
         drag
         dragConstraints={constraintsRef}
@@ -120,17 +123,12 @@ export default function Home() {
           y: 100,
           pointerEvents: 'none'
         }}
-        transition={{ 
-          type: "spring", 
-          stiffness: 260, 
-          damping: 25 
-        }}
+        transition={{ type: "spring", stiffness: 260, damping: 25 }}
         whileDrag={{ cursor: 'grabbing', scale: 1.02 }}
         className="fixed top-8 right-8 w-64 md:w-80 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] border-2 border-white/10 rounded-3xl overflow-hidden group/pip z-[100] cursor-grab will-change-transform translate-z-0 bg-black"
       >
         <div className="relative">
           <CameraStream isMinimized={true} />
-          {/* Recentering Overlay */}
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/pip:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[3px] gap-3">
             <button 
               onClick={recenterCamera}
