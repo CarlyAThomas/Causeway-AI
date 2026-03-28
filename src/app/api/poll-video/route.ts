@@ -31,8 +31,8 @@ export async function POST(req: Request) {
     
     // Check if done
     if (data.done) {
+      console.log("🎬 VEO POLL COMPLETED:", JSON.stringify(data, null, 2));
       // The video URI should be somewhere in the response, likely in data.response.generatedFiles or similar based on Veo API docs.
-      // Often returned as `data.response.generatedVideo.uri` or `data.response.videoUri`
       return NextResponse.json({ success: true, done: true, data });
     } else {
       return NextResponse.json({ success: true, done: false });

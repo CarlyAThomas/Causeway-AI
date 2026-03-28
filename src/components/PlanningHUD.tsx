@@ -13,7 +13,7 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
   return (
     <div className="space-y-4 mb-6 shrink-0">
       {/* Current Mission Goal */}
-      <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl p-4 backdrop-blur-md relative overflow-hidden group">
+      <div className="bg-indigo-900/40 border border-indigo-500/40 rounded-2xl p-4 backdrop-blur-md relative overflow-hidden group shadow-2xl">
         <div className="absolute top-0 right-0 p-2 opacity-20">
             <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -21,8 +21,8 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
         </div>
         
         <div className="relative z-10">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-indigo-400 mb-1">Current Mission</p>
-            <h3 className="text-xs font-bold text-white leading-tight mb-2 uppercase">{current_goal}</h3>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-1">Current Mission</p>
+            <h3 className="text-xs font-black text-white leading-tight mb-2 uppercase">{current_goal}</h3>
             
             <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                 <motion.div 
@@ -36,8 +36,8 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
       </div>
 
       {/* Immediate Next Action */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-        <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/30 mb-2">Immediate Next Action</p>
+      <div className="bg-black/45 border border-white/20 rounded-2xl p-4 shadow-xl">
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/50 mb-2">Immediate Next Action</p>
         <div className="flex items-start gap-3">
             <div className="mt-0.5 shrink-0 w-4 h-4 rounded-full border border-emerald-500/30 flex items-center justify-center">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
@@ -51,8 +51,8 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
       {/* Safety & Effort Grid */}
       <div className="grid grid-cols-2 gap-3">
         {/* Safety Prerequisites */}
-        <div className="bg-red-500/5 border border-red-500/10 rounded-2xl p-3">
-          <p className="text-[8px] font-bold uppercase tracking-widest text-red-400/60 mb-2">Safety Checks</p>
+        <div className="bg-red-950/40 border border-red-500/30 rounded-2xl p-3">
+          <p className="text-[8px] font-black uppercase tracking-widest text-red-400 mb-2">Safety Checks</p>
           <ul className="space-y-1.5">
             {safety_checks.map((check, i) => (
               <li key={i} className="flex items-center gap-1.5">
@@ -66,10 +66,10 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
         </div>
 
         {/* Effort / Complexity */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 flex flex-col justify-between">
+        <div className="bg-black/35 border border-white/20 rounded-2xl p-3 flex flex-col justify-between">
             <div>
-                <p className="text-[8px] font-bold uppercase tracking-widest text-white/30 mb-1">Complexity</p>
-                <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                <p className="text-[8px] font-black uppercase tracking-widest text-white/50 mb-1">Complexity</p>
+                <p className={`text-[10px] font-black uppercase tracking-wider ${
                     estimated_effort === 'high' ? 'text-orange-400' :
                     estimated_effort === 'medium' ? 'text-yellow-400' :
                     'text-emerald-400'
@@ -87,8 +87,8 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
 
       {/* Required Tools Checklist */}
       {required_tools.length > 0 && (
-        <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-400 mb-3">Required Tools</p>
+        <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 shadow-lg">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-3">Required Tools</p>
           <div className="space-y-2">
             {required_tools.map((tool, i) => (
               <div key={i} className="flex items-center justify-between">

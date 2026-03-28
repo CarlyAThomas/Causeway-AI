@@ -68,5 +68,14 @@ export interface MediaRequest {
   status: 'pending' | 'generating' | 'completed' | 'failed' | 'cancelled';
   prompt: string;
   url?: string;
+  thumbnail?: string; // [UX BRIDGE]: Blurred camera frame for processing state
   timestamp: number;
+}
+
+export interface VeoVideo {
+  id: string;
+  title: string;
+  description: string;
+  videoUrl: string;
+  stepNumber: number;
 }

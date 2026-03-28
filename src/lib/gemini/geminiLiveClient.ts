@@ -9,7 +9,7 @@ export interface GeminiLiveConfig {
   systemInstruction?: string;
 }
 
-export type GeminiLiveStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type GeminiLiveStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'idle' | 'thinking' | 'listening';
 
 export class GeminiLiveClient {
   private socket: WebSocket | null = null;
@@ -19,6 +19,9 @@ export class GeminiLiveClient {
   private audioContext: AudioContext | null = null;
   private audioWorklet: AudioWorkletNode | null = null;
   private isReady: boolean = false;
+  private lastSendTime: number = 0; 
+  private isEgressMuted: boolean = false; // [STREAM GUARD]: Prevent ghost-mic poison pills during UI transitions
+  private isEgressLocked: boolean = false; // [ATOMIC GUARD]: Prevent Code 1007 collisions during view-swaps
 
   constructor(config: GeminiLiveConfig, onMessage: (msg: any) => void, onStatusChange: (status: GeminiLiveStatus) => void) {
     this.config = config;
@@ -26,7 +29,82 @@ export class GeminiLiveClient {
     this.onStatusChange = onStatusChange;
   }
 
+  /**
+   * [STREAM GUARD]: Silences all outgoing traffic (except tool responses) to ensure stable handoffs.
+   */
+  public setEgressMuted(muted: boolean) {
+    console.log(`[STREAM GUARD] Egress Muted: ${muted}`);
+    this.isEgressMuted = muted;
+  }
+
+  /**
+   * [FORENSIC EGRESS AUDIT]: Centralized sender that validates every packet.
+   * [PACKET SPACING]: Enforces a 25ms delay between technical payloads.
+   */
+  private async safeSend(label: string, msg: any) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    // [STREAM GUARD]: Block background streams if muted, but ALLOW explicit Tool Responses/Setup
+    // [STABILITY]: VideoFrame and AudioChunk are the primary causes of Code 1007 modality collisions.
+    if (this.isEgressMuted && label !== 'ToolResponse' && label !== 'Setup') {
+        console.warn(`[STREAM GUARD] Blocking ${label} while Egress is Muted (Modality Collision Prevented).`);
+        return;
+    }
+
+    // [PACKET SPACING]: Ensure technical payloads don't collide.
+    // Metadata (SystemEvent/ClientContent) needs more room than high-frequency media (Audio/Video).
+    const now = Date.now();
+    const elapsed = now - this.lastSendTime;
+    const minSpacing = (label === 'SystemEvent' || label === 'ClientContent') ? 150 : 25;
+    
+    if (elapsed < minSpacing) {
+        const delay = minSpacing - elapsed;
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    this.lastSendTime = Date.now();
+
+    try {
+        const payload = JSON.stringify(msg);
+        
+        // --- POISON PILL GUARDS ---
+        
+        // [STRICT AUDIO FLOOR]: A healthy 100ms 16kHz PCM chunk is ~4200 chars. 
+        // 417 chars (microscopic) is a corrupt buffer/interrupted mic and WILL CRASH the server (Code 1007).
+        if (msg.realtimeInput?.audio?.data) {
+            const audioLen = msg.realtimeInput.audio.data.length;
+            if (audioLen < 1500) {
+                console.error(`[GUARDED] Poison Pill Detected in ${label}: Microscopic Audio (${audioLen} chars). BLOCKING TO PREVENT CRASH.`);
+                return;
+            }
+        }
+
+        if (msg.realtimeInput?.video?.data === "") {
+            console.error(`[GUARDED] Poison Pill Detected in ${label}: Empty Video. BLOCKING.`);
+            return;
+        }
+
+        // Forensic Logging (Reveal Data Start to detect Data URI Traps)
+        const keys = Object.keys(msg).join(', ');
+        const length = payload.length;
+        
+        // Extract a snippet of the actual data for audit
+        let dataPreview = "N/A";
+        if (msg.realtimeInput?.video?.data) dataPreview = msg.realtimeInput.video.data.substring(0, 30);
+        else if (msg.realtimeInput?.audio?.data) dataPreview = msg.realtimeInput.audio.data.substring(0, 30);
+        
+        console.log(`[SAFE SEND] ${label} | Keys: [${keys}] | Size: ${length} chars | Data Start: ${dataPreview}...`);
+
+        this.socket.send(payload);
+    } catch (err) {
+        console.error(`[SAFE SEND] Critical error serializing ${label}:`, err);
+    }
+  }
+
   public connect() {
+    this.isReady = false;
+    this.isEgressMuted = false; // [STABILITY RESET]: Unmute on fresh connect to avoid gags.
     this.onStatusChange('connecting');
 
     const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${this.config.apiKey}`;
@@ -49,8 +127,8 @@ export class GeminiLiveClient {
         
         const data = JSON.parse(content);
 
-        // Detect Setup Completion (Handshake Guard)
-        if (data.setupComplete || data.setup_complete) {
+        // Detect Setup Completion
+        if (data.setup_complete || data.setupComplete) {
           console.log("Gemini Live: Setup Complete (Handshake Verified)");
           this.isReady = true;
           this.onStatusChange('connected');
@@ -79,21 +157,18 @@ export class GeminiLiveClient {
   }
 
   private sendSetup() {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-
-    // STABILITY LOCK (RECOVERY): Reverting to AUDIO-only modality to prevent the persistent 1011 crash.
     const setupMsg = {
       setup: {
         model: `models/${this.config.model}`,
-        generation_config: {
-            response_modalities: ["audio"]
+        generationConfig: {
+            responseModalities: ["audio"]
         },
-        system_instruction: this.config.systemInstruction 
+        systemInstruction: this.config.systemInstruction 
             ? { role: "system", parts: [{ text: this.config.systemInstruction }] }
             : { role: "system", parts: [{ text: "You are a helpful assistant." }] },
         tools: [
             {
-              function_declarations: [
+              functionDeclarations: [
                 {
                   name: "generate_text_to_video",
                   description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
@@ -218,13 +293,13 @@ export class GeminiLiveClient {
     };
 
     console.log("Gemini Live: Sending Forensic Audit Setup...", setupMsg);
-    this.socket.send(JSON.stringify(setupMsg));
+    this.safeSend('Setup', setupMsg);
   }
 
   public sendToolResponse(callId: string, name: string, response: any) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     
-    // Use strict snake_case for tool_response (v1alpha Bidi Sync)
+    // [PROTOCOL]: Switching to snake_case (tool_response, function_responses)
     const toolMsg = {
       tool_response: {
         function_responses: [{
@@ -235,8 +310,7 @@ export class GeminiLiveClient {
       }
     };
     
-    console.log("🟢 OUTGOING [ToolResponse]:", toolMsg);
-    this.socket.send(JSON.stringify(toolMsg));
+    this.safeSend('ToolResponse', toolMsg);
   }
 
   /**
@@ -246,11 +320,6 @@ export class GeminiLiveClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
     if (!videoElement || videoElement.readyState < 2) return;
 
-    // Vision Debugging: Log exactly which element Gemini is 'seeing'
-    const elementId = videoElement.id || videoElement.className || 'unknown';
-    // Only log periodically to avoid spam
-    if (Math.random() < 0.05) console.log(`🔍 Gemini Vision: Sampling from [${elementId}]`);
-
     const canvas = document.createElement('canvas');
     canvas.width = 640; 
     canvas.height = 360;
@@ -259,36 +328,43 @@ export class GeminiLiveClient {
 
     ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
     
-    const base64DataUrl = canvas.toDataURL('image/jpeg', 0.6);
-    const base64Image = base64DataUrl.split(',')[1];
-    
-    if (!base64Image || base64Image.length < 10) {
-        console.warn("Gemini Live: Skipping empty/invalid video frame");
-        return;
-    }
-
-    // Using strict v1alpha structure: { realtime_input: { video: { mime_type, data } } }
-    const msg = {
-      realtime_input: {
-        video: {
-          mime_type: 'image/jpeg',
-          data: base64Image
+    try {
+        const base64DataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        
+        // [STRICT SANITIZATION]: Strip data:image/jpeg;base64, prefix using robust regex
+        const base64Image = base64DataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+        
+        if (!base64Image || base64Image.length < 10) {
+            return;
         }
-      }
-    };
 
-    this.socket.send(JSON.stringify(msg));
+        // [ATOMIC LOCK]: Strictly forbid video frames during a context sync (SystemEvent)
+        // to prevent Code 1007 modality collisions.
+        if (this.isEgressLocked) return;
+
+        const msg = {
+          realtime_input: {
+            video: {
+              mime_type: 'image/jpeg',
+              data: base64Image
+            }
+          }
+        };
+
+        this.safeSend('VideoFrame', msg);
+    } catch (err) {
+        // [STABILITY]: If canvas is tainted (CORS) or drawing fails, skip frame rather than crashing the session.
+        console.warn("Gemini Live: Critical Vision Capture Failure (CORS/Tainted Canvas?):", err);
+    }
   }
 
   /**
    * Explicitly sends a static base64-encoded JPEG frame to Gemini.
-   * Useful for "Importing Context" via file uploads.
    */
   public sendBase64Frame(base64Image: string) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
     if (!base64Image || base64Image.length < 10) return;
 
-    // Ensure strict snake_case: { realtime_input: { video: { mime_type, data } } }
     const msg = {
       realtime_input: {
         video: {
@@ -299,7 +375,7 @@ export class GeminiLiveClient {
     };
 
     console.log("📤 OUTGOING [StaticContext]: Frame Injected");
-    this.socket.send(JSON.stringify(msg));
+    this.safeSend('StaticContext', msg);
   }
 
   /**
@@ -310,7 +386,9 @@ export class GeminiLiveClient {
     
     if (!base64Pcm || base64Pcm.length < 5) return;
 
-    // Using strict v1alpha structure: { realtime_input: { audio: { mime_type, data } } }
+    // [ATOMIC LOCK]: Strictly forbid audio chunks during a context sync (SystemEvent)
+    if (this.isEgressLocked) return;
+
     const msg = {
       realtime_input: {
         audio: {
@@ -320,16 +398,19 @@ export class GeminiLiveClient {
       }
     };
 
-    this.socket.send(JSON.stringify(msg));
+    this.safeSend('AudioChunk', msg);
   }
   
   /**
-   * Sends generic client content (e.g. text for State Sync)
+   * Sends generic client content
    */
   public sendClientContent(parts: any[], turnComplete: boolean = true) {
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
       
-      // Use strict snake_case for the client_content envelope (Required by v1alpha)
+      // [ATOMIC HANDSHAKE]: Lock the egress for 150ms to ensure clientContent reaches the server
+      // without being interleaved/interrupted by high-frequency media binary data.
+      this.isEgressLocked = true;
+      
       const msg = {
           client_content: {
               turns: [{
@@ -340,8 +421,11 @@ export class GeminiLiveClient {
           }
       };
       
-      console.log("🔵 OUTGOING [ClientContent]:", JSON.stringify(msg));
-      this.socket.send(JSON.stringify(msg));
+      this.safeSend('ClientContent', msg);
+
+      setTimeout(() => {
+          this.isEgressLocked = false;
+      }, 150);
   }
 
   public disconnect() {
@@ -353,23 +437,28 @@ export class GeminiLiveClient {
   }
 
   /**
-   * Sends a silent text-based turn to Gemini to sync internal state.
+   * Sends a silent text-based turn to Gemini.
    */
-  public sendSystemEvent(text: string) {
+  public sendSystemEvent(text: string, turnComplete: boolean = false) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
 
-    // Use strict snake_case for the client_content envelope (Required by v1alpha)
+    // [ATOMIC HANDSHAKE]: Lock the egress for 150ms to ensure SystemEvent reaches the server
+    this.isEgressLocked = true;
+
     const msg = {
       client_content: {
         turns: [{
           role: "user",
           parts: [{ text }]
         }],
-        turn_complete: true
+        turn_complete: turnComplete
       }
     };
     
-    console.log("🟠 OUTGOING [SystemEvent]:", text);
-    this.socket.send(JSON.stringify(msg));
+    this.safeSend('SystemEvent', msg);
+
+    setTimeout(() => {
+        this.isEgressLocked = false;
+    }, 150);
   }
 }

@@ -9,12 +9,29 @@ import { MediaRequest } from "@/types";
 import { TaskPlan, INITIAL_PLAN } from "@/types/workflow";
 
 /**
+ * findVideoUri
+ * Recursive helper to find any 'uri' key in the deeply nested Gemini LRO response.
+ */
+function findVideoUri(obj: any): string | undefined {
+    if (!obj || typeof obj !== 'object') return undefined;
+    if (obj.uri && typeof obj.uri === 'string' && (obj.uri.includes('googleapis.com') || obj.uri.includes('http'))) {
+        return obj.uri;
+    }
+    for (const key in obj) {
+        const result = findVideoUri(obj[key]);
+        if (result) return result;
+    }
+    return undefined;
+}
+
+/**
  * useGeminiLive
  * Real-time multimodal hook to connect vision and voice to Gemini Live.
  */
 export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onSelectMedia?: (id: string) => void) {
   const [messages, setMessages] = useState<any[]>([]);
-  const [status, setStatus] = useState<string>('idle');
+  const [status, setStatus] = useState<GeminiLiveStatus>('idle');
+  const statusRef = useRef<GeminiLiveStatus>(status); // [STABILITY REF]: Unblock stale closures in audio/vision
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0);
@@ -24,29 +41,52 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const isMutedRef = useRef(isMuted);
   const isAiTurnLockedRef = useRef(true);
+  const isWaitingForModelResponseRef = useRef(false); // [STABILITY LOCK]: Pause all background sends during Tool Execution
   const audioContextRef = useRef<AudioContext | null>(null);
   const pcmPlayerRef = useRef<PCMPlayer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
   const mediaQueueRef = useRef<MediaRequest[]>([]);
-
-  // Keep ref sync'd with state for tool call access
+  const activeToolCallIdRef = useRef<string | null>(null); // [STATE SYNC]: Track callId for success handoff
+  
+  // Keep refs sync'd with state for tool call and closure access
   useEffect(() => {
     mediaQueueRef.current = mediaQueue;
-  }, [mediaQueue]);
+    statusRef.current = status;
+  }, [mediaQueue, status]);
 
-  const sendSystemEvent = useCallback((text: string) => {
-      clientRef.current?.sendSystemEvent(text);
+  const sendSystemEvent = useCallback((text: string, turnComplete: boolean = false) => {
+      if (isWaitingForModelResponseRef.current) {
+          console.warn("🟠 [LOCK]: Dropping SystemEvent during active Tool Execution turn.");
+          return;
+      }
+
+      // [STABILITY]: Mute media egress during System Event sync to prevent Code 1007 modality collisions.
+      // We provide a 150ms 'Quiet Window' for the sync packet to reach the server.
+      isWaitingForModelResponseRef.current = true; 
+      clientRef.current?.sendSystemEvent(text, turnComplete);
+      
+      setTimeout(() => {
+          isWaitingForModelResponseRef.current = false;
+      }, 150);
   }, []);
 
   const connect = useCallback(async () => {
     if (clientRef.current) return;
+    
+    // [STABILITY RESET]: Ensure every new session starts UNLOCKED and ready for media.
+    isWaitingForModelResponseRef.current = false;
 
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
     
     // Initialize Audio Context and PCM Player (16kHz context, 24kHz for AI Voice)
     const audioContext = new AudioContext({ sampleRate: 16000 });
+    
+    // [STABILITY]: Explicitly resume context to bypass browser auto-suspension on handshake.
+    // Without this, the mic stream stays 'suspended' even during User Gestures.
+    try { await audioContext.resume(); } catch (e) { console.error("Audio Resume Error:", e); }
+    
     audioContextRef.current = audioContext;
     pcmPlayerRef.current = new PCMPlayer(audioContext, 24000);
 
@@ -87,11 +127,13 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
         
         // Handle tool calls (Video Generation Requests)
         if (msg.toolCall || msg.tool_call) {
+            isWaitingForModelResponseRef.current = true; // LOCK: Stop vision/audio/text sends
             const toolCall = msg.toolCall || msg.tool_call;
             const functionCalls = toolCall.functionCalls || toolCall.function_calls;
             
             if (functionCalls) {
                 for (const call of functionCalls) {
+                    activeToolCallIdRef.current = call.id; // Store for final success handoff
                     if (call.name === 'propose_plan') {
                         console.log("📝 Plan Proposed:", call.args);
                         setTaskPlan({
@@ -164,12 +206,30 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                     const isVideo = call.name.includes('video');
                     const newRequestId = Math.random().toString(36).substring(7);
                     
+                    // [UX BRIDGE]: Capture the last frame from the camera to use as a Blurred Cover
+                    // during the processing phase. No more blank screens.
+                    let thumbBase64 = undefined;
+                    const activeVid = getActiveVideo();
+                    if (activeVid) {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 480; // Low-res for bridge
+                            canvas.height = 270;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                                ctx.drawImage(activeVid, 0, 0, canvas.width, canvas.height);
+                                thumbBase64 = canvas.toDataURL('image/jpeg', 0.5);
+                            }
+                        } catch (e) { console.warn("Thumbnail Capture Failed:", e); }
+                    }
+
                     // Add to Media Queue
                     setMediaQueue(prev => [{
                         id: newRequestId,
                         type: 'video',
                         status: 'pending',
                         prompt: call.args.prompt || 'Visual Guide Request',
+                        thumbnail: thumbBase64,
                         timestamp: Date.now()
                     }, ...prev]);
                     
@@ -178,9 +238,11 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                         body: JSON.stringify(call.args),
                         headers: { 'Content-Type': 'application/json' }
                     }).then(async (res) => {
+                      const callId = call.id; // [STABILITY]: Closure capture callId to prevent race conditions during polling
                       if (res.ok) {
                          const data = await res.json();
                          if (data.operationName) {
+                            console.log(`🚀 [STAGE]: Generation Started for ${newRequestId}. Status -> Generating.`);
                             setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'generating' } : m));
                             
                             let attempts = 0;
@@ -209,18 +271,68 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                                   const pollData = await pollRes.json();
                                   if (pollData.done) {
                                      clearInterval(pollInterval);
-                                     const finalUri = pollData.data?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || 
-                                                     pollData.data?.response?.generatedVideo?.uri || 
-                                                     pollData.data?.response?.videoUri;
+
+                                     // [STABILITY GUARD]: Check for Google-side API Errors (Resource Exhausted / Demand)
+                                     if (pollData.data?.error) {
+                                         console.error("❌ Veo Generation Failed (Google Side):", pollData.data.error.message);
+                                         setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
+                                             ...m, 
+                                             status: 'failed' 
+                                         } : m));
+                                         
+                                         // Protocol Closure: Tell Gemini it failed
+                                         clientRef.current?.sendToolResponse(
+                                             callId, 
+                                             call.name, 
+                                             { status: "error", error: pollData.data.error.message }
+                                         );
+                                         return;
+                                     }
+
+                                     // [INDUSTRIAL URI HUNTER]: Robustly find the video link in the Google LRO response.
+                                     // This ensures the VeoPlayer gets its source regardless of API nesting variations.
+                                     const finalUri = findVideoUri(pollData.data);
                                      
+                                     // --- [SAFE HANDOFF LIFECYCLE] ---
+                                     
+                                     // 1. Pause the Streams (Stop Ghost Mic poison pills during UI shift)
+                                     clientRef.current?.setEgressMuted(true);
+
+                                     // 2. Wait for UI / Buffer Stability
+                                     await new Promise(r => setTimeout(r, 300));
+
+                                     // 3. Send Success Tool Response (Protocol Closure)
+                                     // [STABILITY]: Resolving the Tool Call is the EXCLUSIVE signal to Gemini.
+                                     // Do NOT send overlapping Text/System events during this phase.
+                                     console.log("🚀 [PROTOCOL]: Closing Tool Call with Success for", callId);
+                                     clientRef.current?.sendToolResponse(
+                                         callId, 
+                                         call.name, 
+                                         { 
+                                             status: "success", 
+                                             message: "Instructional video generated successfully.",
+                                             details: "The Veo video is now on screen and has the user's focus." 
+                                         }
+                                     );
+
+                                     // 4. Update UI State & Force Focus
                                      setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
                                          ...m, 
                                          status: 'completed', 
                                          url: finalUri 
                                      } : m));
 
-                                     // [STATE SYNC]: Notify Gemini that the requested video is now ready.
-                                     sendSystemEvent(`SYSTEM: The visual guide you requested regarding "${call.args.prompt}" is now generated and available for viewing.`);
+                                     // [EXPLICIT FOCUS HANDOFF]: Tell the parent UI to lock onto this newly-completed guide.
+                                     // This ensures the activeMedia pointer in page.tsx refreshes its 'completed' state.
+                                     if (onSelectMedia && finalUri) {
+                                         console.log("🚀 [HANDOFF]: Forcing Stage Focus for", newRequestId);
+                                         onSelectMedia(newRequestId);
+                                     }
+
+                                     // 5. Safely Resume
+                                     setTimeout(() => {
+                                         clientRef.current?.setEgressMuted(false);
+                                     }, 500);
                                   }
                                }
                                
@@ -228,7 +340,7 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                                    clearInterval(pollInterval);
                                    setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                                }
-                            }, 30000);
+                            }, 5000);
                          } else {
                             setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                          }
@@ -240,7 +352,9 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
                         setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                     });
 
-                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, it will appear in the media gallery.");
+                    // [PROTOCOL]: We NO LONGER send an immediate response here.
+                    // Gemini will wait for the final toolResponse from the pollInterval loop.
+                    // This ensures the tool logic is strictly sequential and avoids Code 1007 collisions.
                 }
             }
         }
@@ -318,6 +432,8 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
 
             if (serverContent.turnComplete || serverContent.turn_complete) {
                 isAiTurnLockedRef.current = true;
+                isWaitingForModelResponseRef.current = false; // UNLOCK: Resume background sync
+                setIsSpeaking(false);
                 setStatus('listening');
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
@@ -407,7 +523,10 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
             }
         };
 
-        recognition.onerror = (err: any) => console.error("STT Error Code:", err.error, err.message || "");
+        recognition.onerror = (err: any) => {
+            // STT errors like 'no-speech' or 'audio-capture' are typical in noisy environments
+            console.warn("[STT EVENT] Speech Engine Detail:", err.error, err.message || "");
+        };
         recognitionRef.current = recognition;
         recognition.start();
     }
@@ -431,6 +550,11 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
         
         workletNode.port.onmessage = (event) => {
             if (isMutedRef.current) return setVolume(0);
+            
+            // [STABILITY GUARD]: Absolutely no audio chunks while thinking or waiting for tool responses.
+            // Using statusRef.current here to avoid Staleness Gags in the one-shot connect closure.
+            if (isWaitingForModelResponseRef.current || statusRef.current !== 'listening') return;
+
             const inputData = event.data;
             let sum = 0;
             for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
@@ -448,25 +572,38 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
 
   // [REACTIVE PERCEPTION]: Dynamically switch Gemini's vision source based on UI focus
   useEffect(() => {
-    const isActive = status === 'listening' || status === 'thinking';
+    // [STRENGTHENED GUARD]: Vision sampling must strictly only occur during the 'listening' phase.
+    // Transitioning into 'thinking' while vision frames are in-flight causes Code 1007 modality collisions.
+    const isActive = status === 'listening';
     if (!isActive || !clientRef.current) return;
 
-    console.log("🔍 Perception Loop: Starting vision sampling...");
-    const interval = setInterval(() => {
-        const activeVideo = getActiveVideo();
-        if (activeVideo && clientRef.current) {
-            clientRef.current.sendVideoFrame(activeVideo);
-        }
-    }, 500);
+    // [STABILITY GRACE PERIOD]: Wait 300ms before starting vision sampling.
+    // This allows focus-sync SystemEvents (from page.tsx) to clear the protocol buffer.
+    const startTime = setTimeout(() => {
+        console.log("🔍 Perception Loop: Starting vision sampling...");
+        intervalRef.current = setInterval(() => {
+            const activeVideo = getActiveVideo();
+            // [STRENGTHENED GUARD]: Using statusRef here to prevent stale closure 'Video Leaks' during transitions.
+            const isProtcolSafe = statusRef.current === 'listening' && !isWaitingForModelResponseRef.current;
+            
+            if (activeVideo && clientRef.current && isProtcolSafe) {
+                clientRef.current.sendVideoFrame(activeVideo);
+            }
+        }, 500);
+    }, 300);
 
     return () => {
         console.log("🔍 Perception Loop: Cleaning up...");
-        clearInterval(interval);
+        clearTimeout(startTime);
+        if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [getActiveVideo, status]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) clientRef.current.disconnect();
+    
+    // [STABILITY RESET]: Clear all locks on disconnect to prevent 'Ghost Mic' gags on reconnection.
+    isWaitingForModelResponseRef.current = false;
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     if (audioContextRef.current) audioContextRef.current.close().catch(console.error);
@@ -494,8 +631,8 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
         const base64 = e.target?.result as string;
         if (!base64) return;
 
-        // Strip data:image/jpeg;base64, prefix
-        const base64Data = base64.split(',')[1];
+        // [STRICT SANITIZATION]: Strip data:image/jpeg;base64, prefix using robust regex
+        const base64Data = base64.replace(/^data:image\/[a-z]+;base64,/, "");
         
         // Inject frame if client is ready
         clientRef.current?.sendBase64Frame(base64Data);
@@ -551,5 +688,20 @@ export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null, onS
     }
   }, [isMuted]);
 
-  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, sendSystemEvent, taskPlan, uploadStaticContext };
+  return { 
+    messages, 
+    status, 
+    isSpeaking, 
+    volume, 
+    isMuted, 
+    setIsMuted, 
+    connect, 
+    disconnect, 
+    mediaQueue, 
+    cancelMedia, 
+    sendSystemEvent, 
+    taskPlan, 
+    uploadStaticContext,
+    setEgressMuted: (muted: boolean) => clientRef.current?.setEgressMuted(muted)
+  };
 }

@@ -102,25 +102,25 @@ const CameraStream = forwardRef<HTMLVideoElement, {
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 w-full max-w-[280px] px-4 z-30">
               <button 
                 onClick={onToggleCamera}
-                className={`flex-1 h-9 rounded-full border text-[10px] font-bold uppercase tracking-widest transition-all backdrop-blur-md flex items-center justify-center gap-2 ${
+                className={`flex-1 h-9 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-md flex items-center justify-center gap-2.5 ${
                     isCameraOff 
-                    ? 'bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30' 
-                    : 'bg-accent/60 border-white/5 text-white hover:bg-accent/80'
+                    ? 'bg-red-500/30 border-red-500/50 text-red-100 glow-red shadow-lg' 
+                    : 'bg-black/60 border-white/20 text-white hover:bg-black/80 shadow-2xl'
                 }`}
               >
-                <div className={`w-1.5 h-1.5 rounded-full ${isCameraOff ? 'bg-red-400' : 'bg-emerald-400'}`} />
+                <div className={`w-2 h-2 rounded-full shadow-sm ${isCameraOff ? 'bg-red-400' : 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]'}`} />
                 {isCameraOff ? 'Camera Off' : 'Camera On'}
               </button>
               
               <button 
                 onClick={onToggleMute}
-                className={`flex-1 h-9 rounded-full border text-[10px] font-bold uppercase tracking-widest transition-all backdrop-blur-md flex items-center justify-center gap-2 ${
+                className={`flex-1 h-9 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-md flex items-center justify-center gap-2.5 ${
                     isMuted 
-                    ? 'bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30' 
-                    : 'bg-accent/60 border-white/5 text-white hover:bg-accent/80'
+                    ? 'bg-red-500/30 border-red-500/50 text-red-100 glow-red shadow-lg' 
+                    : 'bg-black/60 border-white/20 text-white hover:bg-black/80 shadow-2xl'
                 }`}
               >
-                <div className={`w-1.5 h-1.5 rounded-full ${isMuted ? 'bg-red-400' : 'bg-emerald-400'}`} />
+                <div className={`w-2 h-2 rounded-full shadow-sm ${isMuted ? 'bg-red-400' : 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]'}`} />
                 {isMuted ? 'Muted' : 'Mic On'}
               </button>
             </div>
