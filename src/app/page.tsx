@@ -16,6 +16,7 @@ export default function Home() {
   const [mainView, setMainView] = useState<'camera' | 'veo'>('camera');
   const userManuallyPausedMedia = useRef(false);
   const constraintsRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -37,14 +38,20 @@ export default function Home() {
     disconnect, 
     mediaQueue, 
     cancelMedia,
-    sendSystemEvent
+    sendSystemEvent,
+    taskPlan,
+    uploadStaticContext
   } = useGeminiLive(useCallback(() => {
       if (mainView === 'veo') return veoVideoRef.current;
       if (mainView === 'camera') {
           return isCameraMinimized ? pipVideoRef.current : mainVideoRef.current;
       }
       return null;
-  }, [mainView, isCameraMinimized]));
+  }, [mainView, isCameraMinimized]), (id) => {
+      setActiveMediaId(id);
+      setIsCameraMinimized(true);
+      setMainView('veo');
+  });
 
   const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
 
@@ -71,17 +78,12 @@ export default function Home() {
   // Auto-activate a new media item if we don't have one active and a new one arrives
   useEffect(() => {
     if (mediaQueue.length > 0) {
-      // If a brand new item started (pending), we always focus it and reset the manual pause
       if (mediaQueue[0].status === 'pending') {
           userManuallyPausedMedia.current = false;
           setActiveMediaId(mediaQueue[0].id);
           setIsCameraMinimized(true);
           setMainView('veo');
-          return;
-      }
-
-      // Otherwise, only auto-focus if we don't have an active media and the user hasn't explicitly clicked 'Live Feed'
-      if (!activeMediaId && !userManuallyPausedMedia.current) {
+      } else if (!activeMediaId && !userManuallyPausedMedia.current) {
           setActiveMediaId(mediaQueue[0].id);
           setIsCameraMinimized(true);
           setMainView('veo');
@@ -115,6 +117,14 @@ export default function Home() {
     setMainView('veo');
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && uploadStaticContext) {
+        uploadStaticContext(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   if (!mounted) return null;
 
   return (
@@ -124,7 +134,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Central Media Area (66% width) */}
-          <div className="lg:col-span-8 relative h-auto md:h-[540px] flex flex-col md:flex-row gap-6">
+          <div className="lg:col-span-8 relative h-auto md:h-[720px] flex flex-col md:flex-row gap-6">
             
             {/* Gallery (shows up on the left side or top depending on screen size) */}
             <AnimatePresence>
@@ -135,23 +145,23 @@ export default function Home() {
                    exit={{ opacity: 0, width: 0 }}
                    className="w-full md:w-56 h-auto md:h-full flex-shrink-0"
                 >
-                  <MediaGallery 
-                     queue={mediaQueue} 
-                     activeMediaId={activeMediaId} 
-                     onSelect={(media) => {
-                         setActiveMediaId(media.id);
-                         setIsCameraMinimized(true);
-                         setMainView('veo');
-                     }}
-                     onCancel={(id) => {
-                         cancelMedia(id);
-                         if (activeMediaId === id) {
-                             setActiveMediaId(null);
-                             setIsCameraMinimized(false);
-                             setMainView('camera');
-                         }
-                     }}
-                  />
+                   <MediaGallery 
+                      queue={mediaQueue} 
+                      activeMediaId={activeMediaId} 
+                      onSelect={(media) => {
+                          setActiveMediaId(media.id);
+                          setIsCameraMinimized(true);
+                          setMainView('veo');
+                      }}
+                      onCancel={(id) => {
+                          cancelMedia(id);
+                          if (activeMediaId === id) {
+                              setActiveMediaId(null);
+                              setIsCameraMinimized(false);
+                              setMainView('camera');
+                          }
+                      }}
+                   />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -175,6 +185,7 @@ export default function Home() {
                         onToggleMute={() => setIsMuted(!isMuted)} 
                         isCameraOff={isCameraOff} 
                         onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+                        tools={taskPlan.required_tools}
                     />
                   </div>
                 )}
@@ -183,13 +194,14 @@ export default function Home() {
           </div>
 
           {/* Right AI Streaming Sidebar (33% width) */}
-          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 h-[540px] p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
-            <AIStreamSidebar 
+          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 h-[720px] p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+             <AIStreamSidebar 
                 messages={messages} 
                 isSpeaking={isSpeaking} 
                 status={status as any} 
                 volume={volume}
-            />
+                taskPlan={taskPlan}
+             />
           </div>
         </div>
 
@@ -230,6 +242,29 @@ export default function Home() {
                 ? 'Start Analysis' 
                 : status === 'thinking' ? 'Connecting...' : 'Active Session'}
           </button>
+
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            accept="image/*,video/*" 
+            className="hidden" 
+          />
+          
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={status === 'idle' && status === 'disconnected'}
+            className={`h-14 rounded-full border border-white/5 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-widest transition-all active:scale-95 ${
+                (status === 'idle' || status === 'disconnected')
+                ? 'opacity-20 cursor-not-allowed' 
+                : 'bg-white/5 hover:bg-white/10 text-white/60'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            Import Context
+          </button>
         </div>
       </main>
 
@@ -264,6 +299,7 @@ export default function Home() {
             onToggleMute={() => setIsMuted(!isMuted)} 
             isCameraOff={isCameraOff} 
             onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+            tools={taskPlan.required_tools}
           />
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/pip:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[3px] gap-3">
             <button 

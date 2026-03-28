@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import VisionOverlay from './VisionOverlay';
 
 const CameraStream = forwardRef<HTMLVideoElement, { 
   id?: string;
@@ -9,7 +10,8 @@ const CameraStream = forwardRef<HTMLVideoElement, {
   onToggleMute?: () => void;
   isCameraOff?: boolean;
   onToggleCamera?: () => void;
-}>(({ id, isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera }, ref) => {
+  tools?: any[];
+}>(({ id, isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera, tools = [] }, ref) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +75,9 @@ const CameraStream = forwardRef<HTMLVideoElement, {
             muted
             className={`w-full h-full object-cover transition-opacity duration-500 ${isCameraOff ? 'opacity-0' : 'opacity-100'}`}
           />
+          
+          {/* Vision Perception Highlights */}
+          {!isCameraOff && <VisionOverlay tools={tools} />}
           
           {isCameraOff && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 backdrop-blur-sm transition-all duration-500">

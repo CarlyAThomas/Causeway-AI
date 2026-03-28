@@ -15,6 +15,7 @@ const VeoPlayer = forwardRef<HTMLVideoElement, { id?: string, videoUrl?: string 
             key={videoUrl}
             autoPlay 
             loop 
+            muted
             playsInline 
             controls 
             className="absolute inset-0 w-full h-full object-cover z-10"

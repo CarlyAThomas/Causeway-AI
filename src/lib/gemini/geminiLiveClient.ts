@@ -63,13 +63,16 @@ export class GeminiLiveClient {
       }
     };
 
-    this.socket.onerror = (err) => {
-      console.error("Gemini Live: WebSocket error:", err);
+    this.socket.onerror = (error) => {
+      console.error("Gemini Live: WebSocket Error:", error);
       this.onStatusChange('error');
     };
 
     this.socket.onclose = (event) => {
-      console.warn(`Gemini Live: WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+      console.warn(`Gemini Live: WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+      if (event.code !== 1000) {
+          console.error("Gemini Live: Connection closed unexpectedly. This may be due to an invalid JSON field or protocol mismatch.");
+      }
       this.isReady = false;
       this.onStatusChange('disconnected');
     };
@@ -83,14 +86,14 @@ export class GeminiLiveClient {
       setup: {
         model: `models/${this.config.model}`,
         generation_config: {
-            response_modalities: ["AUDIO"]
+            response_modalities: ["audio"]
         },
         system_instruction: this.config.systemInstruction 
             ? { role: "system", parts: [{ text: this.config.systemInstruction }] }
             : { role: "system", parts: [{ text: "You are a helpful assistant." }] },
         tools: [
             {
-              functionDeclarations: [
+              function_declarations: [
                 {
                   name: "generate_text_to_video",
                   description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
@@ -118,6 +121,95 @@ export class GeminiLiveClient {
                     },
                     required: ["prompt"]
                   }
+                },
+                {
+                  name: "propose_plan",
+                  description: "Use this before any media generation or major instruction to declare your current goal, the immediate next step, and any safety checks. This updates the user's Planning HUD.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      goal: {
+                        type: "STRING",
+                        description: "The overall mission or objective (e.g., 'Raise the vehicle safely')."
+                      },
+                      next_step: {
+                        type: "STRING",
+                        description: "The immediate physical action the user should take."
+                      },
+                      safety_checks: {
+                        type: "ARRAY",
+                        items: { type: "string" },
+                        description: "A list of critical safety verifications for this plan."
+                      },
+                      effort: {
+                        type: "STRING",
+                        enum: ["low", "medium", "high"],
+                        description: "How much physical effort or complexity this step involves."
+                      },
+                      progress: {
+                        type: "NUMBER",
+                        description: "Overall task progress (0.0 to 1.0)."
+                      },
+                      required_tools: {
+                        type: "ARRAY",
+                        items: {
+                          type: "OBJECT",
+                          properties: {
+                            name: { type: "STRING" }
+                          }
+                        },
+                        description: "List of specific tools needed for this task."
+                      }
+                    },
+                    required: ["goal", "next_step", "safety_checks", "effort", "progress", "required_tools"]
+                  }
+                },
+                {
+                  name: "update_perception",
+                  description: "Use this to report the current status and spatial location (bounding box) of required tools.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      tools: {
+                        type: "ARRAY",
+                        items: {
+                          type: "OBJECT",
+                          properties: {
+                            name: { type: "STRING" },
+                            detected: { type: "BOOLEAN" },
+                            boundingBox: {
+                              type: "ARRAY",
+                              items: { type: "NUMBER" },
+                              description: "[ymin, xmin, ymax, xmax] (0-1000)"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    required: ["tools"]
+                  }
+                },
+                {
+                  name: "query_media_cache",
+                  description: "Get a list of the user's recently generated media items (videos/images) and their status.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {}
+                  }
+                },
+                {
+                  name: "select_media_item",
+                  description: "Switch the user's primary focus to a specific media item from their gallery by its ID.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      id: {
+                        type: "STRING",
+                        description: "The unique ID of the media item to select."
+                      }
+                    },
+                    required: ["id"]
+                  }
                 }
               ]
             }
@@ -129,7 +221,7 @@ export class GeminiLiveClient {
     this.socket.send(JSON.stringify(setupMsg));
   }
 
-  public sendToolResponse(callId: string, name: string, responseStatus: string) {
+  public sendToolResponse(callId: string, name: string, response: any) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     
     // Use strict snake_case for tool_response (v1alpha Bidi Sync)
@@ -138,7 +230,7 @@ export class GeminiLiveClient {
         function_responses: [{
           id: callId,
           name: name,
-          response: { status: responseStatus }
+          response: typeof response === 'string' ? { status: response } : response
         }]
       }
     };
@@ -189,6 +281,28 @@ export class GeminiLiveClient {
   }
 
   /**
+   * Explicitly sends a static base64-encoded JPEG frame to Gemini.
+   * Useful for "Importing Context" via file uploads.
+   */
+  public sendBase64Frame(base64Image: string) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+    if (!base64Image || base64Image.length < 10) return;
+
+    // Ensure strict snake_case: { realtime_input: { video: { mime_type, data } } }
+    const msg = {
+      realtime_input: {
+        video: {
+          mime_type: 'image/jpeg',
+          data: base64Image
+        }
+      }
+    };
+
+    console.log("📤 OUTGOING [StaticContext]: Frame Injected");
+    this.socket.send(JSON.stringify(msg));
+  }
+
+  /**
    * Sends audio PCM data (16-bit, 16kHz or 24kHz)
    */
   public sendAudioChunk(base64Pcm: string) {
@@ -207,6 +321,27 @@ export class GeminiLiveClient {
     };
 
     this.socket.send(JSON.stringify(msg));
+  }
+  
+  /**
+   * Sends generic client content (e.g. text for State Sync)
+   */
+  public sendClientContent(parts: any[], turnComplete: boolean = true) {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+      
+      // Use strict snake_case for the client_content envelope (Required by v1alpha)
+      const msg = {
+          client_content: {
+              turns: [{
+                  role: 'user',
+                  parts: parts
+              }],
+              turn_complete: turnComplete
+          }
+      };
+      
+      console.log("🔵 OUTGOING [ClientContent]:", JSON.stringify(msg));
+      this.socket.send(JSON.stringify(msg));
   }
 
   public disconnect() {

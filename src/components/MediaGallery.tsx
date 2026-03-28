@@ -75,8 +75,33 @@ export default function MediaGallery({ queue, onSelect, activeMediaId, onCancel 
                              </svg>
                          </div>
                      )}
-                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-4">
-                        <p className="text-[8px] text-white/90 line-clamp-2 md:line-clamp-1">{item.prompt}</p>
+                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-4 flex items-end justify-between">
+                        <p className="text-[8px] text-white/90 line-clamp-2 md:line-clamp-1 flex-1">{item.prompt}</p>
+                        <button 
+                           title="Share Externally"
+                           onClick={(e) => {
+                               e.stopPropagation();
+                               const shareUrl = `${item.url}&key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`;
+                               if (navigator.share) {
+                                   navigator.share({
+                                       title: 'Gemini Technical Guide',
+                                       text: `Check out this technical guide for: ${item.prompt}`,
+                                       url: shareUrl
+                                   }).catch(console.error);
+                               } else {
+                                   navigator.clipboard.writeText(shareUrl).then(() => {
+                                       alert("Link copied to clipboard! You can now paste it externally.");
+                                   }).catch(() => {
+                                       window.open(shareUrl, '_blank');
+                                   });
+                               }
+                           }}
+                           className="bg-white/10 hover:bg-white/20 p-1 rounded-lg backdrop-blur-sm transition-colors ml-2 flex-shrink-0"
+                        >
+                           <svg className="w-3 h-3 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                           </svg>
+                        </button>
                      </div>
                   </div>
               )}
