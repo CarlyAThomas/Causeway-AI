@@ -1,5 +1,4 @@
-'use client';
-
+import { useState } from "react";
 import { MediaRequest } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -11,6 +10,8 @@ interface MediaGalleryProps {
 }
 
 export default function MediaGallery({ queue, onSelect, activeMediaId, onCancel }: MediaGalleryProps) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
   if (queue.length === 0) return null;
 
   return (
@@ -89,17 +90,41 @@ export default function MediaGallery({ queue, onSelect, activeMediaId, onCancel 
                         
                         <div className="flex items-center justify-between pointer-events-none">
                             <span className="text-[8px] font-black uppercase tracking-[0.2em] text-white/40">VE-01 GUIDE</span>
-                            <button 
+                               <button 
                                onClick={(e) => {
                                    e.stopPropagation();
-                                   const shareUrl = `${item.url}&key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`;
-                                   navigator.clipboard.writeText(shareUrl);
+                                   if (!item.url) return;
+                                   
+                                   const shareUrl = `${item.url}&key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY || ''}`;
+                                   
+                                   const performCopy = async () => {
+                                       try {
+                                           await navigator.clipboard.writeText(shareUrl);
+                                           setCopiedId(item.id);
+                                           setTimeout(() => setCopiedId(null), 2000);
+                                       } catch (err) {
+                                           console.error("Failed to copy:", err);
+                                           // Fallback for non-secure contexts
+                                           alert("Link copied to console! Check your developer tools.");
+                                           console.log("SHARE_URL:", shareUrl);
+                                       }
+                                   };
+                                   
+                                   performCopy();
                                }}
-                               className="pointer-events-auto bg-white/10 hover:bg-white/20 p-2 rounded-full backdrop-blur-xl border border-white/10 transition-all active:scale-90"
+                               className={`pointer-events-auto p-2 rounded-full backdrop-blur-xl border border-white/10 transition-all active:scale-90 ${
+                                   copiedId === item.id ? 'bg-emerald-500/40 text-emerald-200' : 'bg-white/10 hover:bg-white/20 text-white/80'
+                               }`}
                             >
-                               <svg className="w-3.5 h-3.5 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                               </svg>
+                               {copiedId === item.id ? (
+                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                   </svg>
+                               ) : (
+                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                   </svg>
+                               )}
                             </button>
                         </div>
                      </div>
