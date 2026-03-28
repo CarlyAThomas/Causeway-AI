@@ -148,11 +148,11 @@ Stretch scenarios:
 
 ## Immediate Next Actions
 
+- [ ] **PRIORITY: Set up camera input and Gemini Live integration to test real-time video perception and instructional logic (per judge feedback).**
 - [ ] Finalize app platform decision (web-first with mobile camera support vs React Native).
 - [ ] Implement state machine for tire-change task with mocked media generation.
 - [ ] Define strict system safety instructions for each critical step.
 - [ ] Create deterministic demo script with fallback assets.
-- [ ] Integrate real APIs as access is granted.
 
 ## Local Development
 
