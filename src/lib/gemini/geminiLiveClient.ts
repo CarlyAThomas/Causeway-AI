@@ -29,7 +29,7 @@ export class GeminiLiveClient {
   public connect() {
     this.onStatusChange('connecting');
 
-    const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.config.apiKey}`;
+    const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${this.config.apiKey}`;
     
     this.socket = new WebSocket(url);
 
@@ -87,12 +87,64 @@ export class GeminiLiveClient {
         },
         system_instruction: this.config.systemInstruction 
             ? { parts: [{ text: this.config.systemInstruction }] }
-            : undefined
+            : { parts: [{ text: "You are a helpful assistant." }] },
+        tools: [
+            {
+              functionDeclarations: [
+                {
+                  name: "generate_text_to_video",
+                  description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      prompt: {
+                        type: "STRING",
+                        description: "A highly descriptive, visual-focused prompt instructing the video generation model exactly what to render. (e.g. 'Show a person turning a lug wrench counter-clockwise')."
+                      }
+                    },
+                    required: ["prompt"]
+                  }
+                },
+                {
+                  name: "generate_image_to_video",
+                  description: "Use this when the user asks what to do with a specific object currently shown on their camera. This generates a video showing an action contextually starting from their current real-world state.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      prompt: {
+                        type: "STRING",
+                        description: "A highly descriptive action prompt explaining what should happen to the object in the user's current camera frame."
+                      }
+                    },
+                    required: ["prompt"]
+                  }
+                }
+              ]
+            }
+        ]
       }
     };
 
     console.log("Gemini Live: Sending Forensic Audit Setup...", setupMsg);
     this.socket.send(JSON.stringify(setupMsg));
+  }
+
+  public sendToolResponse(callId: string, name: string, responseStatus: string) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    
+    // In Gemini Live API, tool responses are sent via the root level `toolResponse` key.
+    const toolMsg = {
+      toolResponse: {
+        functionResponses: [{
+          id: callId,
+          name: name,
+          response: { status: responseStatus }
+        }]
+      }
+    };
+    
+    console.log("🟢 OUTGOING [ToolResponse]:", toolMsg);
+    this.socket.send(JSON.stringify(toolMsg));
   }
 
   /**

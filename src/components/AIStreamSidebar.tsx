@@ -69,7 +69,7 @@ export default function AIStreamSidebar({ messages, isSpeaking, status, volume =
                                 animate={{ 
                                     // Calculate height based on volume if listening, otherwise use mockup for AI speaking
                                     height: status === 'listening' 
-                                        ? 4 + (volume * (10 + Math.random() * 40)) 
+                                        ? 4 + (volume * (10 + ((i * 7) % 40))) 
                                         : status === 'speaking' 
                                             ? [4, 12, 32, 16, 40, 8, 24][i % 7]
                                             : 4

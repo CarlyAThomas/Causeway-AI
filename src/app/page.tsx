@@ -10,18 +10,25 @@ import { useGeminiLive } from "@/lib/hooks/useGeminiLive";
 export default function Home() {
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
   const [showVeo, setShowVeo] = useState(false);
+  const [veoVideoUrl, setVeoVideoUrl] = useState<string | null>(null);
   const constraintsRef = useRef(null);
   
   // Ref for the main camera element to provide vision context to Gemini
   const mainVideoRef = useRef<HTMLVideoElement>(null);
 
-  const onGuideTriggered = useCallback((guideId: string) => {
-    console.log("Guide requested by Gemini:", guideId);
+  const onGuideStarted = useCallback(() => {
+    console.log("Guide generation started by Gemini");
     setIsCameraMinimized(true);
     setShowVeo(true);
+    setVeoVideoUrl(null); // Reset URL to show loading state in VeoPlayer
   }, []);
 
-  const { messages, status, isSpeaking, volume, connect, disconnect } = useGeminiLive(mainVideoRef, onGuideTriggered);
+  const onVideoGenerated = useCallback((url: string) => {
+    console.log("Video generation completed! URL:", url);
+    setVeoVideoUrl(url);
+  }, []);
+
+  const { messages, status, isSpeaking, volume, connect, disconnect } = useGeminiLive(mainVideoRef, onVideoGenerated, onGuideStarted);
 
   const requestVisualGuide = () => {
     connect();
@@ -49,7 +56,7 @@ export default function Home() {
             <div className="relative w-full h-full">
               <div className="w-full h-full">
                 {showVeo ? (
-                  <VeoPlayer />
+                  <VeoPlayer videoUrl={veoVideoUrl} isLoading={!veoVideoUrl} />
                 ) : (
                   <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
                     <CameraStream ref={mainVideoRef} />

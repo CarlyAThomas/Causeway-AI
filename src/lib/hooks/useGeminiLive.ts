@@ -9,7 +9,7 @@ import { PCMPlayer } from "../audio/audio-manager";
  * useGeminiLive
  * Real-time multimodal hook to connect vision and voice to Gemini Live.
  */
-export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>, onGuideRequested?: (guideId: string) => void) {
+export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>, onVideoGenerated?: (url: string) => void, onGuideStarted?: () => void) {
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -34,18 +34,69 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     clientRef.current = new GeminiLiveClient(
       { 
         apiKey, 
-        model: "gemini-3.1-flash-live-preview", 
+        model: "gemini-3.1-flash-live-preview", // Must be this model for tools via web sockets!
         systemInstruction: `
           You are a professional task assistant. 
           Always respond in English.
           Use the provided camera frames and user audio to give precise, conversational instructions.
           Always prioritize clarity.
-          If you determine a visual guide (video) is needed, explicitly include "[TRIGGER_GUIDE: guide_id]" in your text response.
+          When you use a video generation tool to demonstrate something, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
+          Do NOT mention the Veo app or say you cannot send videos directly.
         `.trim()
       },
       (msg) => {
         // PINPOINT AUDIT: Printing the full raw packet to identify hidden transcripts
         console.log("Gemini Live: RAW_PACKET", JSON.stringify(msg, null, 2));
+        
+        // Handle tool calls
+        if (msg.toolCall || msg.tool_call) {
+            const toolCall = msg.toolCall || msg.tool_call;
+            const functionCalls = toolCall.functionCalls || toolCall.function_calls;
+            
+            if (functionCalls) {
+                for (const call of functionCalls) {
+                    console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
+                    if (onGuideStarted) onGuideStarted(); // Show Veo player in loading state
+                    
+                    fetch('/api/generate-video', { 
+                        method: 'POST', 
+                        body: JSON.stringify(call.args),
+                        headers: { 'Content-Type': 'application/json' }
+                    }).then(async (res) => {
+                      if (res.ok) {
+                         const data = await res.json();
+                         if (data.operationName) {
+                            let attempts = 0;
+                            const pollInterval = setInterval(async () => {
+                              attempts++;
+                              const pollRes = await fetch('/api/poll-video', {
+                                method: 'POST',
+                                body: JSON.stringify({ operationName: data.operationName }),
+                                headers: { 'Content-Type': 'application/json' }
+                              });
+                              
+                              if (pollRes.ok) {
+                                 const pollData = await pollRes.json();
+                                 if (pollData.done) {
+                                    clearInterval(pollInterval);
+                                    
+                                    const finalUri = pollData.data?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || pollData.data?.response?.generatedVideo?.uri || pollData.data?.response?.videoUri;
+                                    if (finalUri && onVideoGenerated) {
+                                        onVideoGenerated(finalUri);
+                                    }
+                                 }
+                              }
+                              
+                              if (attempts > 30) clearInterval(pollInterval);
+                            }, 30000); // 30 sec
+                         }
+                      }
+                    }).catch(e => console.error(e));
+
+                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, notify the user it will take a few minutes.");
+                }
+            }
+        }
         
         // Robust handling for both camelCase and snake_case response variants
         const serverContent = msg.serverContent || msg.server_content;
@@ -231,7 +282,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         setStatus('error');
     }
 
-  }, [videoRef, onGuideRequested]);
+  }, [videoRef, onGuideStarted, onVideoGenerated]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {
