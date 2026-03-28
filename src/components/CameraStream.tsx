@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-export default function CameraStream() {
+export default function CameraStream({ isMinimized = false }: { isMinimized?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,12 +34,13 @@ export default function CameraStream() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center w-full max-w-2xl mx-auto p-4">
-      <h2 className="text-xl font-bold mb-4">Live Task View</h2>
+    <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-accent/20">
       {error ? (
-        <div className="bg-red-100 text-red-700 p-4 rounded-md">{error}</div>
+        <div className="flex items-center justify-center h-full bg-red-900/10 text-red-200 p-4">
+          <p className="text-center text-xs opacity-80">{error}</p>
+        </div>
       ) : (
-        <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border-2 border-slate-800 shadow-lg">
+        <>
           <video
             ref={videoRef}
             autoPlay
@@ -47,15 +48,22 @@ export default function CameraStream() {
             muted
             className="w-full h-full object-cover"
           />
-          <div className="absolute top-4 right-4 bg-red-600 text-white text-xs px-2 py-1 rounded-full animate-pulse flex items-center gap-2">
-            <span className="w-2 h-2 bg-white rounded-full"></span>
+          <div className="absolute top-3 right-3 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-1 tracking-wider">
+            <span className="w-1 h-1 bg-white rounded-full"></span>
             LIVE
           </div>
-        </div>
+          {!isMinimized && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 w-full max-w-[240px] px-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <button className="flex-1 bg-accent/60 backdrop-blur-lg h-9 rounded-full border border-white/5 text-[10px] font-bold uppercase tracking-tighter text-white hover:bg-accent/80 transition-all">
+                Camera
+              </button>
+              <button className="flex-1 bg-accent/60 backdrop-blur-lg h-9 rounded-full border border-white/5 text-[10px] font-bold uppercase tracking-tighter text-white hover:bg-accent/80 transition-all">
+                Mic
+              </button>
+            </div>
+          )}
+        </>
       )}
-      <p className="text-sm text-slate-500 mt-4 text-center">
-        This feed will be streamed to Gemini Live to analyze your progress and safety.
-      </p>
     </div>
   );
 }
