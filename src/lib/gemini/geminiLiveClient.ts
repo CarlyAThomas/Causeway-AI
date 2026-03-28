@@ -160,15 +160,16 @@ export class GeminiLiveClient {
     const setupMsg = {
       setup: {
         model: `models/${this.config.model}`,
-        generationConfig: {
-            responseModalities: ["audio"]
+        generation_config: {
+            response_modalities: ["audio"]
         },
-        systemInstruction: this.config.systemInstruction 
-            ? { role: "system", parts: [{ text: this.config.systemInstruction }] }
-            : { role: "system", parts: [{ text: "You are a helpful assistant." }] },
+        system_instruction: {
+            role: "system", 
+            parts: [{ text: this.config.systemInstruction || "You are a helpful industrial assistant." }]
+        },
         tools: [
             {
-              functionDeclarations: [
+              function_declarations: [
                 {
                   name: "generate_text_to_video",
                   description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
