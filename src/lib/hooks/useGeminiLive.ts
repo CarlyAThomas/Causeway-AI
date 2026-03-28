@@ -189,11 +189,18 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                                                      pollData.data?.response?.generatedVideo?.uri || 
                                                      pollData.data?.response?.videoUri;
                                      
-                                     setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
-                                         ...m, 
-                                         status: 'completed', 
-                                         url: finalUri 
-                                     } : m));
+                                     setMediaQueue(prev => prev.map(m => {
+                                         if (m.id === newRequestId) {
+                                             // Completion Sync: Notify Gemini that visual context is available
+                                             if (clientRef.current) {
+                                                 clientRef.current.sendClientContent([{ 
+                                                     text: `[SYSTEM_EVENT]: Video generation complete for prompt: "${m.prompt}". Item ID: ${m.id}. It is now in the media gallery.` 
+                                                 }]);
+                                             }
+                                             return { ...m, status: 'completed', url: finalUri };
+                                         }
+                                         return m;
+                                     }));
                                   }
                                }
                                
@@ -237,37 +244,13 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 setTimeout(() => setIsSpeaking(false), 500);
             }
 
+            let aiTextToAppend = "";
             const modelTurn = serverContent.modelTurn || serverContent.model_turn;
             if (modelTurn?.parts) {
                 modelTurn.parts.forEach((p: any) => {
-                    // DEEP AUDIT: Log all part types to find implicit transcripts
-                    console.log("Gemini Live PART AUDIT:", p);
-
-                    // Standard Text or Implicit Transcript Variants
                     const transcript = p.text || p.transcript || p.interim_transcript || p.interimResult;
-                    if (transcript) {
-                        setMessages(prev => {
-                            const lastMsg = prev[prev.length - 1];
-                            if (lastMsg && lastMsg.role === 'ai' && !lastMsg.isComplete) {
-                                // Append to the actively streaming AI message block
-                                return [
-                                    ...prev.slice(0, -1),
-                                    { ...lastMsg, text: lastMsg.text + transcript }
-                                ];
-                            } else {
-                                // Create a new AI message block
-                                return [...prev.slice(-15), { 
-                                    id: Math.random().toString(36), 
-                                    role: 'ai', 
-                                    text: transcript, 
-                                    agent: 'Gemini',
-                                    isComplete: false
-                                }];
-                            }
-                        });
-                    }
+                    if (transcript) aiTextToAppend += transcript;
 
-                    // Thinking Capture (Implicit reasoning?)
                     if (p.thought || p.thought_process) {
                         setMessages(prev => [...prev.slice(-15), { 
                             id: Math.random().toString(36), 
@@ -277,36 +260,37 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                         }]);
                     }
 
-                    // Handle Audio Responses (fallback)
                     const audioData = p.inlineData?.data || p.inline_data?.data;
                     if (audioData && pcmPlayerRef.current) {
-                        console.log("Gemini Live: Found audio in modelTurn parts.");
                         pcmPlayerRef.current.feed(audioData);
                         setIsSpeaking(true);
-                        setTimeout(() => setIsSpeaking(false), 2000); // Longer speaking window for visualizer
+                        setTimeout(() => setIsSpeaking(false), 2000);
                     }
                 });
             }
 
-            // Real-time AI Transcription (Turn-Locked for clarity)
             const transcription = serverContent.outputTranscription || serverContent.output_transcription;
-            if (transcription?.text) {
+            if (transcription?.text && aiTextToAppend === "") {
+                aiTextToAppend = transcription.text;
+            }
+
+            if (aiTextToAppend) {
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
-                    if (lastMsg && lastMsg.role === 'ai' && !isAiTurnLockedRef.current) {
+                    if (lastMsg && lastMsg.role === 'ai' && !lastMsg.isComplete) {
                         return [
                             ...prev.slice(0, -1),
-                            { ...lastMsg, text: lastMsg.text + transcription.text, timestamp: Date.now() }
+                            { ...lastMsg, text: lastMsg.text + aiTextToAppend, timestamp: Date.now() }
                         ];
                     } else {
-                        isAiTurnLockedRef.current = false;
                         return [...prev.slice(-15), { 
                             id: Math.random().toString(36), 
                             role: 'ai', 
-                            text: transcription.text, 
-                            agent: 'Gemini Live',
+                            text: aiTextToAppend, 
+                            agent: 'Gemini',
+                            isComplete: false,
                             timestamp: Date.now()
-                        } ];
+                        }];
                     }
                 });
             }
