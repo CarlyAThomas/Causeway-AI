@@ -8,6 +8,7 @@ export default function VeoPlayer({ videoUrl, isLoading }: { videoUrl?: string |
       
       {videoUrl ? (
         <video 
+            key={videoUrl}
             autoPlay 
             loop 
             playsInline 

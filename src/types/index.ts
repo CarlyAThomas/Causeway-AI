@@ -61,3 +61,12 @@ export interface AnalyzeRequest {
   incident_text: string;
   mock?: boolean;
 }
+
+export interface MediaRequest {
+  id: string;
+  type: 'video' | 'image';
+  status: 'pending' | 'generating' | 'completed' | 'failed' | 'cancelled';
+  prompt: string;
+  url?: string;
+  timestamp: number;
+}

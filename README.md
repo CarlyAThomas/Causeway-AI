@@ -69,20 +69,20 @@ Continuous loop:
 - **Phase 2: Agentic Tool Orchestration:** Wired Gemini Live with Function Declarations/Tool Calling giving the AI the ability to decide *when* a visual guide is necessary based on conversational context.
 - **Phase 3: Veo 3.1 Integration:** Built asynchronous tool-handling endpoints (`/api/generate-video` and `/api/poll-video`) to interface with Google's long-running video generation REST API.
 - **Phase 4: Dynamic UI:** Built an responsive streaming UI where active task views shift between live camera and high-fidelity Veo demonstrations seamlessly.
+- **Phase 5: Asynchronous Media Gallery & Session History:** Shifted to a non-blocking UI queue paradigm. Videos now generate in the background and populate a responsive side gallery component. Users can toggle through their active session's generated media or cancel pending requests without losing their real-time camera connection to the AI.
 
 ## Immediate Tasks / Backlog
 
 - [x] **App Platform Decision:** Finalized as a web-first application using Next.js with unified mobile/desktop camera support.
 - [x] **Gemini Live Integration:** Connected BidiGenerateContent WebSockets for real-time video perception and multimodal instruction.
-- [ ] **Video Request Queueing:** Currently, if Gemini calls the video generation tool multiple times in succession, the first request is tracked while others may drop or overwrite the active player state. We need a request tracking queue.
-- [ ] **Media Gallery UI (Asynchronous UI):** Replace the blocking full-screen loading state for Veo video generation. Add a side gallery for pending, generating, and completed media. Allow users to select generated frames/videos from the gallery to view at their convenience without interrupting the live camera session.
-- [ ] **Media Session History:** Store a temporary cache of generated videos and images so users don't lose media once they transition back to the live camera view. Allow traversing past generated guides.
+- [x] **Video Request Queueing:** Currently, if Gemini calls the video generation tool multiple times in succession, the first request is tracked while others may drop or overwrite the active player state. We need a request tracking queue.
+- [x] **Media Gallery UI (Asynchronous UI):** Replace the blocking full-screen loading state for Veo video generation. Add a side gallery for pending, generating, and completed media. Allow users to select generated frames/videos from the gallery to view at their convenience without interrupting the live camera session.
+- [x] **Media Session History:** Store a temporary cache of generated videos and images so users don't lose media once they transition back to the live camera view. Allow traversing past generated guides.
 - [ ] **Sharing Capabilities:** Add the ability to share (export) generated images/videos externally, as well as an upload/share mechanism (import) for users to send existing images or videos *to* Gemini for context understanding if they can't point their live camera at it.
-- [ ] **Interactive Framed Edit Mode:** Allow a user to pause on a frame of a video or a static image, enter an editing mode, and point/annotate/draw on it to get clarification on specific components (e.g., "What is *this* particular lug nut?").
 - [ ] **Task State Machine:** Implement robust workflow state logging for deterministic physical tasks (e.g., changing a tire).
 - [ ] **Safety Guidelines:** Define strict system safety instructions for each critical step in the AI orchestration prompts.
 - [ ] **Demo Mode & Fallbacks:** Create a deterministic demo script with local fallback assets to handle potential network or API instability during hackathon judging.
-
+- [ ] **Interactive Framed Edit Mode:** Allow a user to pause on a frame of a video or a static image, enter an editing mode, and point/annotate/draw on it to get clarification on specific components (e.g., "What is *this* particular lug nut?").
 
 ## Technical Reality And Guardrails
 

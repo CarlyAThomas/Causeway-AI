@@ -1,34 +1,31 @@
 'use client';
 
-import { useState, useRef, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import CameraStream from "@/components/CameraStream";
 import VeoPlayer from "@/components/VeoPlayer";
 import AIStreamSidebar from "@/components/AIStreamSidebar";
+import MediaGallery from "@/components/MediaGallery";
 import { useGeminiLive } from "@/lib/hooks/useGeminiLive";
 
 export default function Home() {
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
-  const [showVeo, setShowVeo] = useState(false);
-  const [veoVideoUrl, setVeoVideoUrl] = useState<string | null>(null);
+  const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
   const constraintsRef = useRef(null);
   
   // Ref for the main camera element to provide vision context to Gemini
   const mainVideoRef = useRef<HTMLVideoElement>(null);
 
-  const onGuideStarted = useCallback(() => {
-    console.log("Guide generation started by Gemini");
-    setIsCameraMinimized(true);
-    setShowVeo(true);
-    setVeoVideoUrl(null); // Reset URL to show loading state in VeoPlayer
-  }, []);
+  const { messages, status, isSpeaking, volume, connect, disconnect, mediaQueue, cancelMedia } = useGeminiLive(mainVideoRef);
 
-  const onVideoGenerated = useCallback((url: string) => {
-    console.log("Video generation completed! URL:", url);
-    setVeoVideoUrl(url);
-  }, []);
+  const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
 
-  const { messages, status, isSpeaking, volume, connect, disconnect } = useGeminiLive(mainVideoRef, onVideoGenerated, onGuideStarted);
+  // Auto-activate a new media item if we don't have one active and a new one arrives
+  useEffect(() => {
+    if (!activeMediaId && mediaQueue.length > 0) {
+      // setActiveMediaId(mediaQueue[0].id); // Optional: we can let user click it instead
+    }
+  }, [mediaQueue, activeMediaId]);
 
   const requestVisualGuide = () => {
     connect();
@@ -37,26 +34,56 @@ export default function Home() {
   const endSession = () => {
     disconnect();
     setIsCameraMinimized(false);
-    setShowVeo(false);
+    setActiveMediaId(null);
   };
 
   const recenterCamera = () => {
     setIsCameraMinimized(false);
-    setShowVeo(false);
+    setActiveMediaId(null);
   };
 
   return (
     <div ref={constraintsRef} className="min-h-screen bg-background font-sans text-white p-6 md:p-12 lg:p-16 transition-colors duration-500 overflow-hidden relative">
       <main className="max-w-7xl mx-auto space-y-12">
         {/* Top Grid: Main Media Focus and AI Sidebar */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Central Media Area (66% width) */}
-          <div className="lg:col-span-8 relative h-[540px]">
-            <div className="relative w-full h-full">
+          <div className="lg:col-span-8 relative h-auto md:h-[540px] flex flex-col md:flex-row gap-6">
+            
+            {/* Gallery (shows up on the left side or top depending on screen size) */}
+            <AnimatePresence>
+              {mediaQueue.length > 0 && (
+                <motion.div 
+                   initial={{ opacity: 0, width: 0 }}
+                   animate={{ opacity: 1, width: 'auto' }}
+                   exit={{ opacity: 0, width: 0 }}
+                   className="w-full md:w-56 h-auto md:h-full flex-shrink-0"
+                >
+                  <MediaGallery 
+                     queue={mediaQueue} 
+                     activeMediaId={activeMediaId} 
+                     onSelect={(media) => {
+                         setActiveMediaId(media.id);
+                         setIsCameraMinimized(true);
+                     }}
+                     onCancel={(id) => {
+                         cancelMedia(id);
+                         if (activeMediaId === id) {
+                             setActiveMediaId(null);
+                             setIsCameraMinimized(false);
+                         }
+                     }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Main Player */}
+            <div className="relative w-full h-[300px] md:h-full flex-grow">
               <div className="w-full h-full">
-                {showVeo ? (
-                  <VeoPlayer videoUrl={veoVideoUrl} isLoading={!veoVideoUrl} />
+                {activeMedia ? (
+                  <VeoPlayer videoUrl={activeMedia.url} isLoading={activeMedia.status !== 'completed'} />
                 ) : (
                   <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
                     <CameraStream ref={mainVideoRef} />

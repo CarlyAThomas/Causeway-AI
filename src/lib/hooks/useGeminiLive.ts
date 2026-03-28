@@ -5,15 +5,18 @@ import { GeminiLiveClient, GeminiLiveStatus } from "../gemini/geminiLiveClient";
 import { floatTo16BitPCM, arrayBufferToBase64 } from "../audio/pcm-utils";
 import { PCMPlayer } from "../audio/audio-manager";
 
+import { MediaRequest } from "@/types";
+
 /**
  * useGeminiLive
  * Real-time multimodal hook to connect vision and voice to Gemini Live.
  */
-export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>, onVideoGenerated?: (url: string) => void, onGuideStarted?: () => void) {
+export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [volume, setVolume] = useState(0);
+  const [mediaQueue, setMediaQueue] = useState<MediaRequest[]>([]);
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const pcmPlayerRef = useRef<PCMPlayer | null>(null);
@@ -56,7 +59,17 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             if (functionCalls) {
                 for (const call of functionCalls) {
                     console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
-                    if (onGuideStarted) onGuideStarted(); // Show Veo player in loading state
+                    
+                    const isVideo = call.name.includes('video');
+                    const newRequestId = Math.random().toString(36).substring(7);
+                    
+                    setMediaQueue(prev => [{
+                        id: newRequestId,
+                        type: 'video', // Assume video for these specific Veo tools
+                        status: 'pending',
+                        prompt: call.args.prompt || 'Visual Guide Request',
+                        timestamp: Date.now()
+                    }, ...prev]);
                     
                     fetch('/api/generate-video', { 
                         method: 'POST', 
@@ -66,8 +79,25 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                       if (res.ok) {
                          const data = await res.json();
                          if (data.operationName) {
+                            setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'generating' } : m));
+                            
                             let attempts = 0;
                             const pollInterval = setInterval(async () => {
+                              // Cancel check: if item is no longer generating (or removed), stop polling
+                              let currentStatus = 'generating';
+                              setMediaQueue(prev => {
+                                const m = prev.find(item => item.id === newRequestId);
+                                if (!m || m.status === 'cancelled') {
+                                    currentStatus = 'cancelled';
+                                }
+                                return prev;
+                              });
+
+                              if (currentStatus === 'cancelled') {
+                                  clearInterval(pollInterval);
+                                  return;
+                              }
+
                               attempts++;
                               const pollRes = await fetch('/api/poll-video', {
                                 method: 'POST',
@@ -81,19 +111,32 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                                     clearInterval(pollInterval);
                                     
                                     const finalUri = pollData.data?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || pollData.data?.response?.generatedVideo?.uri || pollData.data?.response?.videoUri;
-                                    if (finalUri && onVideoGenerated) {
-                                        onVideoGenerated(finalUri);
-                                    }
+                                    
+                                    setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
+                                        ...m, 
+                                        status: 'completed', 
+                                        url: finalUri 
+                                    } : m));
                                  }
                               }
                               
-                              if (attempts > 30) clearInterval(pollInterval);
+                              if (attempts > 30) {
+                                  clearInterval(pollInterval);
+                                  setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
+                              }
                             }, 30000); // 30 sec
+                         } else {
+                            setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                          }
+                      } else {
+                         setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                       }
-                    }).catch(e => console.error(e));
+                    }).catch(e => {
+                        console.error(e);
+                        setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
+                    });
 
-                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, notify the user it will take a few minutes.");
+                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, notify the user it will take a few minutes. It will appear in their media gallery.");
                 }
             }
         }
@@ -282,7 +325,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         setStatus('error');
     }
 
-  }, [videoRef, onGuideStarted, onVideoGenerated]);
+  }, [videoRef]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {
@@ -313,5 +356,9 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     setStatus('idle');
   }, []);
 
-  return { messages, status, isSpeaking, volume, connect, disconnect };
+  const cancelMedia = useCallback((id: string) => {
+      setMediaQueue(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  return { messages, status, isSpeaking, volume, connect, disconnect, mediaQueue, cancelMedia };
 }
