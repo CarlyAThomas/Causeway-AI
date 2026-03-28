@@ -19,6 +19,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const pcmPlayerRef = useRef<PCMPlayer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const connect = useCallback(async () => {
     if (clientRef.current) return;
@@ -36,13 +37,15 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
           You are a professional task assistant. 
+          Always respond in English.
           Use the provided camera frames and user audio to give precise, conversational instructions.
           Always prioritize clarity.
           If you determine a visual guide (video) is needed, explicitly include "[TRIGGER_GUIDE: guide_id]" in your text response.
         `.trim()
       },
       (msg) => {
-        console.log("Gemini Live Raw DATA:", msg);
+        // PINPOINT AUDIT: Printing the full raw packet to identify hidden transcripts
+        console.log("Gemini Live: RAW_PACKET", JSON.stringify(msg, null, 2));
         
         // Robust handling for both camelCase and snake_case response variants
         const serverContent = msg.serverContent || msg.server_content;
@@ -51,28 +54,64 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             const modelTurn = serverContent.modelTurn || serverContent.model_turn;
             if (modelTurn?.parts) {
                 modelTurn.parts.forEach((p: any) => {
-                    // Handle Text Transcripts
-                    if (p.text) {
-                        console.log("Gemini Live TEXT RECEIVED:", p.text);
-                        setMessages(prev => [...prev.slice(-10), { 
+                    // DEEP AUDIT: Log all part types to find implicit transcripts
+                    console.log("Gemini Live PART AUDIT:", p);
+
+                    // Standard Text or Implicit Transcript Variants
+                    const transcript = p.text || p.transcript || p.interim_transcript || p.interimResult;
+                    if (transcript) {
+                        setMessages(prev => [...prev.slice(-15), { 
                             id: Math.random().toString(36), 
                             role: 'ai', 
-                            text: p.text, 
-                            agent: 'Gemini Live' 
+                            text: transcript, 
+                            agent: 'Gemini (Audit)' 
                         }]);
-                        
-                        // Logic to detect visual guide triggers
-                        const match = p.text.match(/\[TRIGGER_GUIDE: (.*?)\]/);
-                        if (match && onGuideRequested) onGuideRequested(match[1]);
                     }
 
-                    // Handle Audio Responses (from AI speaking)
+                    // Thinking Capture (Implicit reasoning?)
+                    if (p.thought || p.thought_process) {
+                        setMessages(prev => [...prev.slice(-15), { 
+                            id: Math.random().toString(36), 
+                            role: 'ai', 
+                            text: `[THINKING]: ${p.thought || p.thought_process}`, 
+                            agent: 'Gemini (Thinking)' 
+                        }]);
+                    }
+
+                    // Handle Audio Responses
                     const audioData = p.inlineData?.data || p.inline_data?.data;
                     if (audioData && pcmPlayerRef.current) {
                         pcmPlayerRef.current.feed(audioData);
                         setIsSpeaking(true);
-                        // Briefly pulse visualizer for AI voice activity
                         setTimeout(() => setIsSpeaking(false), 500);
+                    }
+                });
+            }
+
+            // Search Grounding Metadata
+            if (serverContent.groundingMetadata || serverContent.grounding_metadata) {
+                console.log("Gemini Live GROUNDING AUDIT:", serverContent.groundingMetadata || serverContent.grounding_metadata);
+            }
+
+            // [FIXED] Capture Gemini 3.1 Real-time Transcription (Appending instead of new blocks)
+            const transcription = serverContent.outputTranscription || serverContent.output_transcription;
+            if (transcription?.text) {
+                setMessages(prev => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === 'ai' && lastMsg.agent === 'Gemini Live') {
+                        // Append to the existing AI message block
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...lastMsg, text: lastMsg.text + transcription.text }
+                        ];
+                    } else {
+                        // Create a new AI message block
+                        return [...prev.slice(-15), { 
+                            id: Math.random().toString(36), 
+                            role: 'ai', 
+                            text: transcription.text, 
+                            agent: 'Gemini Live' 
+                        } ];
                     }
                 });
             }
@@ -92,6 +131,59 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     );
 
     clientRef.current.connect();
+
+    // Initialize Local Speech Recognition (for User Speech-to-Text in Sidebar)
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+        const recognition = new Recognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event: any) => {
+            const transcript = Array.from(event.results)
+                .map((result: any) => result[0])
+                .map((result: any) => result.transcript)
+                .join('');
+            
+            setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.role === 'user') {
+                    // Update the existing interim user message
+                    return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, text: transcript }
+                    ];
+                } else {
+                    // Create a new user message block
+                    return [...prev.slice(-15), { 
+                        id: Math.random().toString(36), 
+                        role: 'user', 
+                        text: transcript, 
+                        agent: 'You' 
+                    }];
+                }
+            });
+
+            // If it's final, we can give it a unique ID to "lock" it
+            if (event.results[0].isFinal) {
+                setMessages(prev => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.id === 'user-interim') {
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...lastMsg, id: Math.random().toString(36) }
+                        ];
+                    }
+                    return prev;
+                });
+            }
+        };
+
+        recognition.onerror = (err: any) => console.error("Speech Recognition Error:", err);
+        recognitionRef.current = recognition;
+        recognition.start();
+    }
 
     // Start Vision Sampling (Sample frame every 500ms)
     intervalRef.current = setInterval(() => {
@@ -161,6 +253,10 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     if (pcmPlayerRef.current) {
         pcmPlayerRef.current.stop();
         pcmPlayerRef.current = null;
+    }
+    if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
     }
     setVolume(0);
     setStatus('idle');

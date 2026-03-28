@@ -45,13 +45,13 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           
           {/* Central Media Area (66% width) */}
-          <div className="lg:col-span-8 relative min-h-[400px] lg:min-h-[500px]">
+          <div className="lg:col-span-8 relative h-[540px]">
             <div className="relative w-full h-full">
               <div className="w-full h-full">
                 {showVeo ? (
                   <VeoPlayer />
                 ) : (
-                  <div className={`${isCameraMinimized ? 'hidden' : 'block'}`}>
+                  <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
                     <CameraStream ref={mainVideoRef} />
                   </div>
                 )}
@@ -60,7 +60,7 @@ export default function Home() {
           </div>
 
           {/* Right AI Streaming Sidebar (33% width) */}
-          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 min-h-[400px] lg:min-h-[550px] p-8 shadow-2xl backdrop-blur-xl">
+          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 h-[540px] p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
             <AIStreamSidebar 
                 messages={messages} 
                 isSpeaking={isSpeaking} 

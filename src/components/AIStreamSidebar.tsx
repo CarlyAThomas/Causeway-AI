@@ -1,6 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from "framer-motion";
+import { useRef, useEffect } from "react";
 
 interface Message {
   id: string;
@@ -17,10 +18,19 @@ interface AIStreamSidebarProps {
 }
 
 export default function AIStreamSidebar({ messages, isSpeaking, status, volume = 0 }: AIStreamSidebarProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of conversation
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
   return (
-    <div className="flex flex-col h-full max-h-screen">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header & Status Panel */}
-      <div className="mb-6 space-y-4">
+      <div className="mb-6 space-y-4 shrink-0">
         <div className="flex items-center justify-between">
             <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">Active Analysis</p>
@@ -89,7 +99,10 @@ export default function AIStreamSidebar({ messages, isSpeaking, status, volume =
       </div>
 
       {/* Primary Message Stream */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar scroll-smooth">
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar scroll-smooth"
+      >
           <AnimatePresence initial={false}>
               {messages.map((msg) => (
                   <motion.div
@@ -108,7 +121,7 @@ export default function AIStreamSidebar({ messages, isSpeaking, status, volume =
                                 <p className="text-[9px] font-bold text-white/30 uppercase tracking-widest">{msg.agent}</p>
                             </div>
                         )}
-                        <p className="text-[11px] leading-relaxed text-white/80 font-medium">
+                        <p className="text-[11px] leading-relaxed text-white/80 font-medium whitespace-pre-wrap">
                             {msg.text}
                         </p>
                         

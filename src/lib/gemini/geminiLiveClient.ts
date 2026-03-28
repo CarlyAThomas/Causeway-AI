@@ -78,17 +78,20 @@ export class GeminiLiveClient {
   private sendSetup() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
-    // MINIMAL VIABLE SETUP: Stripping all variables to isolate the 1011 crash
+    // STABILITY LOCK (RECOVERY): Reverting to AUDIO-only modality to prevent the persistent 1011 crash.
     const setupMsg = {
       setup: {
         model: `models/${this.config.model}`,
         generation_config: {
             response_modalities: ["AUDIO"]
-        }
+        },
+        system_instruction: this.config.systemInstruction 
+            ? { parts: [{ text: this.config.systemInstruction }] }
+            : undefined
       }
     };
 
-    console.log("Gemini Live: Sending Minimal Setup...", setupMsg);
+    console.log("Gemini Live: Sending Forensic Audit Setup...", setupMsg);
     this.socket.send(JSON.stringify(setupMsg));
   }
 
@@ -106,9 +109,15 @@ export class GeminiLiveClient {
     if (!ctx) return;
 
     ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-    // Robust Base64 extraction (Suspect 1 Fix)
+    
+    // Safety Guard: Ensure image/jpeg and handle empty data (Suspect 2 Fix)
     const base64DataUrl = canvas.toDataURL('image/jpeg', 0.6);
     const base64Image = base64DataUrl.split(',')[1];
+    
+    if (!base64Image || base64Image.length < 10) {
+        console.warn("Gemini Live: Skipping empty/invalid video frame");
+        return;
+    }
 
     const msg = {
       realtimeInput: {
@@ -127,6 +136,9 @@ export class GeminiLiveClient {
    */
   public sendAudioChunk(base64Pcm: string) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+    
+    // Safety Guard: Prevent sending empty audio buffers
+    if (!base64Pcm || base64Pcm.length < 5) return;
 
     const msg = {
       realtimeInput: {
