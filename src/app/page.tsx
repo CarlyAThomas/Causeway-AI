@@ -9,15 +9,22 @@ import MediaGallery from "@/components/MediaGallery";
 import { useGeminiLive } from "@/lib/hooks/useGeminiLive";
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
   const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [mainView, setMainView] = useState<'camera' | 'veo'>('camera');
   const userManuallyPausedMedia = useRef(false);
   const constraintsRef = useRef(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
-  // Ref for the main camera element to provide vision context to Gemini
   const mainVideoRef = useRef<HTMLVideoElement>(null);
+  const veoVideoRef = useRef<HTMLVideoElement>(null);
+  const pipVideoRef = useRef<HTMLVideoElement>(null);
+  const lastSyncStateRef = useRef<string>("");
 
   const { 
     messages, 
@@ -29,10 +36,37 @@ export default function Home() {
     connect, 
     disconnect, 
     mediaQueue, 
-    cancelMedia 
-  } = useGeminiLive(mainVideoRef);
+    cancelMedia,
+    sendSystemEvent
+  } = useGeminiLive(useCallback(() => {
+      if (mainView === 'veo') return veoVideoRef.current;
+      if (mainView === 'camera') {
+          return isCameraMinimized ? pipVideoRef.current : mainVideoRef.current;
+      }
+      return null;
+  }, [mainView, isCameraMinimized]));
 
   const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
+
+  // [STATE SYNC]: Notify Gemini when the user's attention focus shifts (Deduplicated)
+  useEffect(() => {
+      const isLive = status === 'listening' || status === 'thinking';
+      if (!isLive) return;
+
+      const syncKey = `${mainView}:${activeMediaId}`;
+      if (syncKey === lastSyncStateRef.current) return;
+
+      if (mainView === 'camera') {
+          sendSystemEvent("SYSTEM: User is now focusing on the LIVE CAMERA feed. Please provide instructions based on their physical surroundings.");
+          lastSyncStateRef.current = syncKey;
+      } else if (mainView === 'veo') {
+          const media = mediaQueue.find(m => m.id === activeMediaId);
+          if (media && media.prompt) {
+              sendSystemEvent(`SYSTEM: User is now focusing on the AI GENERATED VIDEO for: "${media.prompt}". Gemini should shift vision focus to the video player and answer any questions about this specific guide.`);
+              lastSyncStateRef.current = syncKey;
+          }
+      }
+  }, [mainView, activeMediaId, status, sendSystemEvent, mediaQueue]);
 
   // Auto-activate a new media item if we don't have one active and a new one arrives
   useEffect(() => {
@@ -81,6 +115,8 @@ export default function Home() {
     setMainView('veo');
   };
 
+  if (!mounted) return null;
+
   return (
     <div ref={constraintsRef} className="min-h-screen bg-background font-sans text-white p-6 md:p-12 lg:p-16 transition-colors duration-500 overflow-hidden relative">
       <main className="max-w-7xl mx-auto space-y-12">
@@ -125,12 +161,15 @@ export default function Home() {
               <div className="w-full h-full">
                 {mainView === 'veo' ? (
                   <VeoPlayer 
+                    id="veo-player-feed"
+                    ref={veoVideoRef}
                     videoUrl={activeMedia?.url} 
                     isLoading={!!activeMedia && activeMedia.status !== 'completed'} 
                   />
                 ) : (
                   <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
                     <CameraStream 
+                        id="main-camera-feed"
                         ref={mainVideoRef} 
                         isMuted={isMuted} 
                         onToggleMute={() => setIsMuted(!isMuted)} 
@@ -180,14 +219,16 @@ export default function Home() {
           
           <button 
             onClick={requestVisualGuide}
-            disabled={status !== 'idle'}
+            disabled={status !== 'idle' && status !== 'disconnected' && status !== 'error'}
             className={`h-14 rounded-full border text-[11px] font-bold uppercase tracking-widest transition-all active:scale-95 shadow-lg ${
-                status !== 'idle' 
+                (status !== 'idle' && status !== 'disconnected' && status !== 'error')
                 ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400/50 cursor-not-allowed'
                 : 'bg-indigo-600/20 border-indigo-500/30 text-indigo-100 hover:bg-indigo-600/40 hover:shadow-indigo-500/10'
             }`}
           >
-            {status === 'idle' ? 'Start Analysis' : 'Analyzing Input...'}
+            {status === 'idle' || status === 'disconnected' || status === 'error' 
+                ? 'Start Analysis' 
+                : status === 'thinking' ? 'Connecting...' : 'Active Session'}
           </button>
         </div>
       </main>
@@ -216,6 +257,8 @@ export default function Home() {
       >
         <div className="relative">
           <CameraStream 
+            id="pip-camera-feed"
+            ref={pipVideoRef}
             isMinimized={true} 
             isMuted={isMuted} 
             onToggleMute={() => setIsMuted(!isMuted)} 

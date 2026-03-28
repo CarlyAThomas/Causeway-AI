@@ -1,6 +1,8 @@
 'use client';
 
-export default function VeoPlayer({ videoUrl, isLoading }: { videoUrl?: string | null, isLoading?: boolean }) {
+import { forwardRef } from 'react';
+
+const VeoPlayer = forwardRef<HTMLVideoElement, { id?: string, videoUrl?: string | null, isLoading?: boolean }>(({ id, videoUrl, isLoading }, ref) => {
   return (
     <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-accent/20 group cursor-pointer transition-all duration-500">
       {/* Background Gradient / Mesh Effect (Placeholder for actual video) */}
@@ -8,6 +10,8 @@ export default function VeoPlayer({ videoUrl, isLoading }: { videoUrl?: string |
       
       {videoUrl ? (
         <video 
+            id={id}
+            ref={ref}
             key={videoUrl}
             autoPlay 
             loop 
@@ -50,4 +54,8 @@ export default function VeoPlayer({ videoUrl, isLoading }: { videoUrl?: string |
       </div>
     </div>
   );
-}
+});
+
+VeoPlayer.displayName = 'VeoPlayer';
+
+export default VeoPlayer;

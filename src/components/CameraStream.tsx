@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
 const CameraStream = forwardRef<HTMLVideoElement, { 
+  id?: string;
   isMinimized?: boolean;
   isMuted?: boolean;
   onToggleMute?: () => void;
   isCameraOff?: boolean;
   onToggleCamera?: () => void;
-}>(({ isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera }, ref) => {
+}>(({ id, isMinimized = false, isMuted = false, onToggleMute, isCameraOff = false, onToggleCamera }, ref) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +66,7 @@ const CameraStream = forwardRef<HTMLVideoElement, {
       ) : (
         <>
           <video
+            id={id}
             ref={localVideoRef}
             autoPlay
             playsInline

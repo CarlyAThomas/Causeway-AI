@@ -86,8 +86,8 @@ export class GeminiLiveClient {
             response_modalities: ["AUDIO"]
         },
         system_instruction: this.config.systemInstruction 
-            ? { parts: [{ text: this.config.systemInstruction }] }
-            : { parts: [{ text: "You are a helpful assistant." }] },
+            ? { role: "system", parts: [{ text: this.config.systemInstruction }] }
+            : { role: "system", parts: [{ text: "You are a helpful assistant." }] },
         tools: [
             {
               functionDeclarations: [
@@ -132,10 +132,10 @@ export class GeminiLiveClient {
   public sendToolResponse(callId: string, name: string, responseStatus: string) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     
-    // In Gemini Live API, tool responses are sent via the root level `toolResponse` key.
+    // Use strict snake_case for tool_response (v1alpha Bidi Sync)
     const toolMsg = {
-      toolResponse: {
-        functionResponses: [{
+      tool_response: {
+        function_responses: [{
           id: callId,
           name: name,
           response: { status: responseStatus }
@@ -154,6 +154,11 @@ export class GeminiLiveClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
     if (!videoElement || videoElement.readyState < 2) return;
 
+    // Vision Debugging: Log exactly which element Gemini is 'seeing'
+    const elementId = videoElement.id || videoElement.className || 'unknown';
+    // Only log periodically to avoid spam
+    if (Math.random() < 0.05) console.log(`🔍 Gemini Vision: Sampling from [${elementId}]`);
+
     const canvas = document.createElement('canvas');
     canvas.width = 640; 
     canvas.height = 360;
@@ -162,7 +167,6 @@ export class GeminiLiveClient {
 
     ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
     
-    // Safety Guard: Ensure image/jpeg and handle empty data (Suspect 2 Fix)
     const base64DataUrl = canvas.toDataURL('image/jpeg', 0.6);
     const base64Image = base64DataUrl.split(',')[1];
     
@@ -171,10 +175,11 @@ export class GeminiLiveClient {
         return;
     }
 
+    // Using strict v1alpha structure: { realtime_input: { video: { mime_type, data } } }
     const msg = {
-      realtimeInput: {
+      realtime_input: {
         video: {
-          mimeType: 'image/jpeg',
+          mime_type: 'image/jpeg',
           data: base64Image
         }
       }
@@ -189,13 +194,13 @@ export class GeminiLiveClient {
   public sendAudioChunk(base64Pcm: string) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
     
-    // Safety Guard: Prevent sending empty audio buffers
     if (!base64Pcm || base64Pcm.length < 5) return;
 
+    // Using strict v1alpha structure: { realtime_input: { audio: { mime_type, data } } }
     const msg = {
-      realtimeInput: {
+      realtime_input: {
         audio: {
-          mimeType: 'audio/pcm;rate=16000',
+          mime_type: 'audio/pcm;rate=16000',
           data: base64Pcm
         }
       }
@@ -210,5 +215,26 @@ export class GeminiLiveClient {
       this.socket = null;
     }
     this.onStatusChange('disconnected');
+  }
+
+  /**
+   * Sends a silent text-based turn to Gemini to sync internal state.
+   */
+  public sendSystemEvent(text: string) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+
+    // Use strict snake_case for the client_content envelope (Required by v1alpha)
+    const msg = {
+      client_content: {
+        turns: [{
+          role: "user",
+          parts: [{ text }]
+        }],
+        turn_complete: true
+      }
+    };
+    
+    console.log("🟠 OUTGOING [SystemEvent]:", text);
+    this.socket.send(JSON.stringify(msg));
   }
 }

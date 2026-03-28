@@ -10,7 +10,7 @@ import { MediaRequest } from "@/types";
  * useGeminiLive
  * Real-time multimodal hook to connect vision and voice to Gemini Live.
  */
-export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>) {
+export function useGeminiLive(getActiveVideo: () => HTMLVideoElement | null) {
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -26,6 +26,10 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  const sendSystemEvent = useCallback((text: string) => {
+      clientRef.current?.sendSystemEvent(text);
+  }, []);
 
   const connect = useCallback(async () => {
     if (clientRef.current) return;
@@ -118,6 +122,9 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                                          status: 'completed', 
                                          url: finalUri 
                                      } : m));
+
+                                     // [STATE SYNC]: Notify Gemini that the requested video is now ready.
+                                     sendSystemEvent(`SYSTEM: The visual guide you requested regarding "${call.args.prompt}" is now generated and available for viewing.`);
                                   }
                                }
                                
@@ -187,7 +194,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                         ];
                     } else {
                         isAiTurnLockedRef.current = false;
-                        return [...prev.slice(-15), { 
+                        return [...prev.slice(-50), { 
                             id: Math.random().toString(36), 
                             role: 'ai', 
                             text: transcription.text, 
@@ -215,18 +222,20 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
     // Local STT for Sidebar
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+        const Recognition = (window as any).webkitSpeechRecognition || (window as any).Recognition;
         const recognition = new Recognition();
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
         recognition.onresult = (event: any) => {
+            if (isMutedRef.current) return;
+            
             let transcript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 transcript += event.results[i][0].transcript;
             }
-            if (isMutedRef.current) return;
+            
             isAiTurnLockedRef.current = true;
             const isFinal = event.results[event.results.length - 1].isFinal;
 
@@ -238,8 +247,6 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 const isRecentUserMessage = lastMsg && lastMsg.role === 'user' && (now - (lastMsg.timestamp || 0) < 4000);
 
                 if (isRecentUserMessage) {
-                    // Update/Merge with the existing user message
-                    // If it was an interim message, we replace text. If it was finalized, we append with a space.
                     const isInterim = lastMsg.id.startsWith('user-interim-');
                     const newText = isInterim ? transcript : (lastMsg.text + " " + transcript);
                     
@@ -248,8 +255,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                         { ...lastMsg, text: newText, timestamp: now }
                     ];
                 } else {
-                    // Create a new user message block
-                    return [...prev.slice(-15), { 
+                    return [...prev.slice(-50), { 
                         id: `user-interim-${now}`, 
                         role: 'user', 
                         text: transcript, 
@@ -273,16 +279,19 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             }
         };
 
-        recognition.onerror = (err: any) => console.error("STT Error:", err);
+        recognition.onend = () => {
+            // Self-repair: Restart if it ends unexpectedly while not muted
+            if (!isMutedRef.current && clientRef.current) {
+                try { recognition.start(); } catch(e) {}
+            }
+        };
+
+        recognition.onerror = (err: any) => console.error("STT Error Code:", err.error, err.message || "");
         recognitionRef.current = recognition;
         recognition.start();
     }
 
-    intervalRef.current = setInterval(() => {
-        if (videoRef.current && clientRef.current) {
-            clientRef.current.sendVideoFrame(videoRef.current);
-        }
-    }, 500);
+    intervalRef.current = null;
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -308,7 +317,26 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         console.error("Mic Access Error:", err);
         setStatus('error');
     }
-  }, [videoRef]);
+  }, [getActiveVideo, sendSystemEvent]);
+
+  // [REACTIVE PERCEPTION]: Dynamically switch Gemini's vision source based on UI focus
+  useEffect(() => {
+    const isActive = status === 'listening' || status === 'thinking';
+    if (!isActive || !clientRef.current) return;
+
+    console.log("🔍 Perception Loop: Starting vision sampling...");
+    const interval = setInterval(() => {
+        const activeVideo = getActiveVideo();
+        if (activeVideo && clientRef.current) {
+            clientRef.current.sendVideoFrame(activeVideo);
+        }
+    }, 500);
+
+    return () => {
+        console.log("🔍 Perception Loop: Cleaning up...");
+        clearInterval(interval);
+    };
+  }, [getActiveVideo, status]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) clientRef.current.disconnect();
@@ -361,5 +389,5 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     }
   }, [isMuted]);
 
-  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia };
+  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, sendSystemEvent };
 }
