@@ -63,41 +63,35 @@ Continuous loop:
 - Live perception checks user execution.
 - If incorrect/unsafe, trigger correction path immediately.
 
+## Progress & Completed Milestones
+
+- **Phase 1: Real-time Multimodal Integration:** Successfully connected Gemini Live to the frontend via WebSockets (`BidiGenerateContent`), enabling live video feed processing from the user's camera (at ~1FPS sampling) alongside bi-directional audio instructions.
+- **Phase 2: Agentic Tool Orchestration:** Wired Gemini Live with Function Declarations/Tool Calling giving the AI the ability to decide *when* a visual guide is necessary based on conversational context.
+- **Phase 3: Veo 3.1 Integration:** Built asynchronous tool-handling endpoints (`/api/generate-video` and `/api/poll-video`) to interface with Google's long-running video generation REST API.
+- **Phase 4: Dynamic UI:** Built an responsive streaming UI where active task views shift between live camera and high-fidelity Veo demonstrations seamlessly.
+
+## Immediate Tasks / Backlog
+
+- [x] **App Platform Decision:** Finalized as a web-first application using Next.js with unified mobile/desktop camera support.
+- [x] **Gemini Live Integration:** Connected BidiGenerateContent WebSockets for real-time video perception and multimodal instruction.
+- [ ] **Video Request Queueing:** Currently, if Gemini calls the video generation tool multiple times in succession, the first request is tracked while others may drop or overwrite the active player state. We need a request tracking queue.
+- [ ] **Media Gallery UI (Asynchronous UI):** Replace the blocking full-screen loading state for Veo video generation. Add a side gallery for pending, generating, and completed media. Allow users to select generated frames/videos from the gallery to view at their convenience without interrupting the live camera session.
+- [ ] **Media Session History:** Store a temporary cache of generated videos and images so users don't lose media once they transition back to the live camera view. Allow traversing past generated guides.
+- [ ] **Sharing Capabilities:** Add the ability to share (export) generated images/videos externally, as well as an upload/share mechanism (import) for users to send existing images or videos *to* Gemini for context understanding if they can't point their live camera at it.
+- [ ] **Interactive Framed Edit Mode:** Allow a user to pause on a frame of a video or a static image, enter an editing mode, and point/annotate/draw on it to get clarification on specific components (e.g., "What is *this* particular lug nut?").
+- [ ] **Task State Machine:** Implement robust workflow state logging for deterministic physical tasks (e.g., changing a tire).
+- [ ] **Safety Guidelines:** Define strict system safety instructions for each critical step in the AI orchestration prompts.
+- [ ] **Demo Mode & Fallbacks:** Create a deterministic demo script with local fallback assets to handle potential network or API instability during hackathon judging.
+
+
 ## Technical Reality And Guardrails
 
-- API access is currently pending; architecture is designed to support mock endpoints first.
-- Latency is expected for generated media; UX must include buffering messages and prefetching the next step.
+- Latency is expected for generated media; UX includes buffering and polling visualizations. Wait times for Veo 3.1 video generation are currently around 1-3 minutes.
+- Real-time models limit WebSocket outputs exclusively to `gemini-3.1-flash-live-preview`.
 - Safety is mandatory for physical tasks:
   - Always gate dangerous steps behind safety checks.
   - Require parking brake and stable jack confirmation before lift steps.
   - Escalate uncertainty to "stop and verify" instead of guessing.
-
-## Build Plan (Phased)
-
-### Phase 0 - API-Unblocked Prototype (Now)
-
-- Build end-to-end state machine with mocked Veo/Lyria/Nano Banana outputs.
-- Keep Gemini Flash as the orchestration brain in mock mode.
-- Validate user flow, timing, and UI behavior before API keys arrive.
-
-Deliverable:
-- Reliable clickable demo that shows Observe -> Plan -> Generate -> Instruct -> Verify flow.
-
-### Phase 1 - Live Perception Integration
-
-- Integrate Gemini Live for camera understanding and progress verification.
-- Add safety rule layer and confidence thresholds.
-
-Deliverable:
-- Real-time state transitions based on user actions.
-
-### Phase 2 - Generative Media Integration
-
-- Replace placeholders with Veo, Nano Banana, and Lyria calls.
-- Add retries, fallbacks, and caching for generated assets.
-
-Deliverable:
-- True multimodal step guidance for at least one full task.
 
 ### Phase 3 - Demo Hardening
 
@@ -145,14 +139,6 @@ Stretch scenarios:
 5. Impact and closing (30-45s)
 - Utility for hands-on learners and high-stress situations.
 - Why this is scalable beyond tire changing.
-
-## Immediate Next Actions
-
-- [ ] **PRIORITY: Set up camera input and Gemini Live integration to test real-time video perception and instructional logic (per judge feedback).**
-- [ ] Finalize app platform decision (web-first with mobile camera support vs React Native).
-- [ ] Implement state machine for tire-change task with mocked media generation.
-- [ ] Define strict system safety instructions for each critical step.
-- [ ] Create deterministic demo script with fallback assets.
 
 ## Local Development
 
