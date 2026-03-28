@@ -1,18 +1,36 @@
 'use client';
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CameraStream from "@/components/CameraStream";
 import VeoPlayer from "@/components/VeoPlayer";
+import AIStreamSidebar from "@/components/AIStreamSidebar";
+import { useGeminiLive } from "@/lib/hooks/useGeminiLive";
 
 export default function Home() {
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
   const [showVeo, setShowVeo] = useState(false);
   const constraintsRef = useRef(null);
+  
+  // Ref for the main camera element to provide vision context to Gemini
+  const mainVideoRef = useRef<HTMLVideoElement>(null);
 
-  const requestVisualGuide = () => {
+  const onGuideTriggered = useCallback((guideId: string) => {
+    console.log("Guide requested by Gemini:", guideId);
     setIsCameraMinimized(true);
     setShowVeo(true);
+  }, []);
+
+  const { messages, status, isSpeaking, connect, disconnect } = useGeminiLive(mainVideoRef, onGuideTriggered);
+
+  const requestVisualGuide = () => {
+    connect();
+  };
+
+  const endSession = () => {
+    disconnect();
+    setIsCameraMinimized(false);
+    setShowVeo(false);
   };
 
   const recenterCamera = () => {
@@ -24,36 +42,31 @@ export default function Home() {
     <div ref={constraintsRef} className="min-h-screen bg-background font-sans text-white p-6 md:p-12 lg:p-16 transition-colors duration-500 overflow-hidden relative">
       <main className="max-w-7xl mx-auto space-y-12">
         {/* Top Grid: Main Focus Area and Status Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           
           {/* Central Media Area (75% width) */}
-          <div className="lg:col-span-9 relative min-h-[400px] lg:min-h-[500px]">
+          <div className="lg:col-span-8 relative min-h-[400px] lg:min-h-[500px]">
             <div className="relative w-full h-full">
               {/* Primary Content: Either Camera or Veo */}
-              <div className={`transition-all duration-700 ease-in-out ${isCameraMinimized ? 'opacity-100 scale-100' : 'opacity-100 scale-100'}`}>
+              <div className="w-full h-full">
                 {showVeo ? (
                   <VeoPlayer />
                 ) : (
                   <div className={`${isCameraMinimized ? 'hidden' : 'block'}`}>
-                    <CameraStream />
+                    <CameraStream ref={mainVideoRef} />
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Right Status Panel (25% width) */}
-          <div className="lg:col-span-3 bg-surface rounded-3xl border border-accent/10 min-h-[400px] lg:min-h-[500px] p-6 shadow-xl hidden lg:block">
-            <div className="space-y-6">
-                <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">System Status</p>
-                    <div className="h-0.5 w-12 bg-accent/40 rounded-full" />
-                </div>
-                <div className="space-y-4">
-                    <div className="bg-accent/20 h-4 rounded-full w-3/4 animate-pulse" />
-                    <div className="bg-accent/20 h-4 rounded-full w-1/2 animate-pulse" />
-                </div>
-            </div>
+          {/* Right AI Streaming Sidebar (33% width / lg:col-span-4) */}
+          <div className="lg:col-span-4 bg-surface/30 rounded-3xl border border-white/5 min-h-[400px] lg:min-h-[550px] p-8 shadow-2xl backdrop-blur-xl">
+            <AIStreamSidebar 
+                messages={messages} 
+                isSpeaking={isSpeaking} 
+                status={status as any} 
+            />
           </div>
         </div>
 
@@ -61,26 +74,35 @@ export default function Home() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <button 
             onClick={recenterCamera}
-            className="bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95"
+            className="group relative bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95 overflow-hidden"
           >
-            Live Feed
+            <span className="relative z-10">Live Feed</span>
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
           </button>
           <button className="bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95">
-            Toggle Mic
+            Mic Settings
           </button>
-          <button className="bg-red-900/30 text-red-200 h-14 rounded-full border border-red-500/10 text-[11px] font-bold uppercase tracking-widest hover:bg-red-900/50 transition-all active:scale-95">
+          <button 
+            onClick={endSession}
+            className="bg-red-900/10 text-red-400 h-14 rounded-full border border-red-500/10 text-[11px] font-bold uppercase tracking-widest hover:bg-red-900/30 transition-all active:scale-95"
+          >
             End Session
           </button>
           <button 
             onClick={requestVisualGuide}
-            className="bg-indigo-600/20 text-indigo-200 h-14 rounded-full border border-indigo-500/20 text-[11px] font-bold uppercase tracking-widest hover:bg-indigo-600/40 transition-all active:scale-95 shadow-[0_0_20px_rgba(79,70,229,0.1)]"
+            disabled={status !== 'idle'}
+            className={`h-14 rounded-full border text-[11px] font-bold uppercase tracking-widest transition-all active:scale-95 shadow-lg ${
+                status !== 'idle' 
+                ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400/50 cursor-not-allowed'
+                : 'bg-indigo-600/20 border-indigo-500/30 text-indigo-100 hover:bg-indigo-600/40 hover:shadow-indigo-500/10'
+            }`}
           >
-            Request Visual Guide
+            {status === 'idle' ? 'Start Analysis' : 'Analyzing Input...'}
           </button>
         </div>
       </main>
 
-      {/* Minimized PIP Camera Overlay (Draggable & GPU Accelerated) */}
+      {/* Minimized PIP Camera Overlay (Draggable & Accelerated) */}
       <motion.div 
         drag
         dragConstraints={constraintsRef}

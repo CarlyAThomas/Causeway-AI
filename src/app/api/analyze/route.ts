@@ -11,7 +11,7 @@ import {
 // ---------------------------------------------------------------------------
 // Toggle: set NEXT_PUBLIC_MOCK_MODE=true in .env.local to skip real API calls
 // ---------------------------------------------------------------------------
-const MOCK_MODE = process.env.MOCK_MODE === "true" || !process.env.GEMINI_API_KEY;
+const MOCK_MODE = process.env.MOCK_MODE === "true" || (!process.env.GEMINI_API_KEY && !process.env.NEXT_PUBLIC_GEMINI_API_KEY);
 
 // ---------------------------------------------------------------------------
 // Real agent call (stubbed — fill in model ID and endpoint on hackathon day)
@@ -20,7 +20,7 @@ async function callAgent(
   role: keyof typeof AGENT_SYSTEM_PROMPTS,
   incidentText: string
 ): Promise<AgentResult> {
-  const apiKey = process.env.GEMINI_API_KEY!;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
   // TODO: confirm exact model ID with organizers (Nano Banana / Gemini Live / etc.)
   const model = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;

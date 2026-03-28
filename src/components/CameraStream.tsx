@@ -1,20 +1,27 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
-export default function CameraStream({ isMinimized = false }: { isMinimized?: boolean }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+const CameraStream = forwardRef<HTMLVideoElement, { isMinimized?: boolean }>(({ isMinimized = false }, ref) => {
+  const localVideoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Expose the internal video element to the parent ref
+  useImperativeHandle(ref, () => localVideoRef.current as HTMLVideoElement);
 
   useEffect(() => {
     async function setupCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } // Prefer back camera for physical tasks
+          video: { 
+            facingMode: 'environment', // Prefer back camera for physical tasks
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
         });
         
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
         }
       } catch (err) {
         console.error("Error accessing camera:", err);
@@ -26,8 +33,8 @@ export default function CameraStream({ isMinimized = false }: { isMinimized?: bo
 
     return () => {
       // Cleanup stream when component unmounts
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
+      if (localVideoRef.current && localVideoRef.current.srcObject) {
+        const stream = localVideoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
       }
     };
@@ -42,7 +49,7 @@ export default function CameraStream({ isMinimized = false }: { isMinimized?: bo
       ) : (
         <>
           <video
-            ref={videoRef}
+            ref={localVideoRef}
             autoPlay
             playsInline
             muted
@@ -66,4 +73,8 @@ export default function CameraStream({ isMinimized = false }: { isMinimized?: bo
       )}
     </div>
   );
-}
+});
+
+CameraStream.displayName = 'CameraStream';
+
+export default CameraStream;
