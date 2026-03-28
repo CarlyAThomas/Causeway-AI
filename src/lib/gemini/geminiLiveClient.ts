@@ -63,13 +63,16 @@ export class GeminiLiveClient {
       }
     };
 
-    this.socket.onerror = (err) => {
-      console.error("Gemini Live: WebSocket error:", err);
+    this.socket.onerror = (error) => {
+      console.error("Gemini Live: WebSocket Error:", error);
       this.onStatusChange('error');
     };
 
     this.socket.onclose = (event) => {
-      console.warn(`Gemini Live: WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+      console.warn(`Gemini Live: WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+      if (event.code !== 1000) {
+          console.error("Gemini Live: Connection closed unexpectedly. This may be due to an invalid JSON field or protocol mismatch.");
+      }
       this.isReady = false;
       this.onStatusChange('disconnected');
     };

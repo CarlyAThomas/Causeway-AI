@@ -33,17 +33,18 @@ export default function VisionOverlay({ tools }: VisionOverlayProps) {
           <g key={`${tool.name}-${index}`}>
             {/* The Outer Hue (Glow) */}
             <motion.rect
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               x={xmin}
               y={ymin}
               width={width}
               height={height}
-              fill="transparent"
-              stroke="rgba(147, 197, 253, 0.5)"
-              strokeWidth="20"
+              fill="none"
+              stroke="rgba(59, 130, 246, 0.7)"
+              strokeWidth="40"
               filter="url(#glow)"
               rx="20"
+              vectorEffect="non-scaling-stroke"
             />
             
             {/* The Inner Box */}
@@ -55,10 +56,11 @@ export default function VisionOverlay({ tools }: VisionOverlayProps) {
               y={ymin}
               width={width}
               height={height}
-              fill="transparent"
-              stroke="rgba(191, 219, 254, 0.8)"
-              strokeWidth="4"
+              fill="none"
+              stroke="rgba(147, 197, 253, 1)"
+              strokeWidth="8"
               rx="20"
+              vectorEffect="non-scaling-stroke"
             />
 
             {/* Label */}

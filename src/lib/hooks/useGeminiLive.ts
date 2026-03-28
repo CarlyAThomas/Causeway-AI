@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { GeminiLiveClient, GeminiLiveStatus } from "../gemini/geminiLiveClient";
 import { floatTo16BitPCM, arrayBufferToBase64 } from "../audio/pcm-utils";
 import { PCMPlayer } from "../audio/audio-manager";
+import { playSuccessDing } from "../audio/audio-utils";
 import { MediaRequest } from "@/types";
 import { TaskPlan, INITIAL_PLAN } from "@/types/workflow";
 
@@ -122,17 +123,36 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                     }
 
                     if (call.name === 'update_perception') {
-                        const updatedTools = call.args.tools;
-                        setTaskPlan(prev => ({
-                            ...prev,
-                            required_tools: prev.required_tools.map(t => {
+                        const updatedTools = call.args.tools || call.args.required_tools || [];
+                        console.log("👁️ Perception Update Received:", updatedTools);
+                        setTaskPlan(prev => {
+                            let newlyDetected = false;
+                            const nextTools = prev.required_tools.map(t => {
                                 const update = updatedTools.find((ut: any) => ut.name.toLowerCase() === t.name.toLowerCase());
                                 if (update) {
-                                    return { ...t, detected: update.detected, boundingBox: update.boundingBox };
+                                    const box = update.boundingBox || update.bounding_box;
+                                    const typedBox = Array.isArray(box) && box.length === 4 
+                                        ? box as [number, number, number, number] 
+                                        : undefined;
+
+                                    if (update.detected && !t.detected) newlyDetected = true;
+
+                                    return { 
+                                        ...t, 
+                                        detected: update.detected === true, 
+                                        boundingBox: typedBox 
+                                    };
                                 }
                                 return t;
-                            })
-                        }));
+                            });
+
+                            if (newlyDetected) {
+                                console.log("🔔 Ding: Tool Identified!");
+                                playSuccessDing();
+                            }
+
+                            return { ...prev, required_tools: nextTools };
+                        });
                         clientRef.current?.sendToolResponse(call.id, call.name, "perception updated.");
                         continue;
                     }
