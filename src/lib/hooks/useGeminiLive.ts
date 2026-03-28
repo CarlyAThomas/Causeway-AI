@@ -5,6 +5,7 @@ import { GeminiLiveClient, GeminiLiveStatus } from "../gemini/geminiLiveClient";
 import { floatTo16BitPCM, arrayBufferToBase64 } from "../audio/pcm-utils";
 import { PCMPlayer } from "../audio/audio-manager";
 import { MediaRequest } from "@/types";
+import { TaskPlan, INITIAL_PLAN } from "@/types/workflow";
 
 /**
  * useGeminiLive
@@ -17,6 +18,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0);
   const [mediaQueue, setMediaQueue] = useState<MediaRequest[]>([]);
+  const [taskPlan, setTaskPlan] = useState<TaskPlan>(INITIAL_PLAN);
   
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const isMutedRef = useRef(isMuted);
@@ -43,11 +45,17 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
           You are a professional task assistant. 
-          Always respond in English.
-          Use the provided camera frames and user audio to give precise, conversational instructions.
-          Always prioritize clarity.
-          When you use a video generation tool to demonstrate something, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
-          Do NOT mention the Veo app or say you cannot send videos directly.
+          Respond in English.
+          Use camera frames and audio for precise instructions.
+          
+          THE PLANNING LOOP:
+          1. OBSERVE: Detect tools and object states. 
+          2. PLAN: Use 'propose_plan' BEFORE media generation to declare your strategy and safety steps.
+          3. ACT: Trigger 'generate_text_to_video' or 'generate_image_to_video' to show the user what to do.
+          4. VERIFY: Confirm completion before moving to the next goal.
+          
+          Safety is your PRIORITY. Always check for prerequisites like 'parking brake' or 'stable jack' in your plan.
+          When demonstrating, say 'I am generating a video for you now.'
         `.trim()
       },
       (msg) => {
@@ -60,6 +68,19 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             
             if (functionCalls) {
                 for (const call of functionCalls) {
+                    if (call.name === 'propose_plan') {
+                        console.log("📝 Plan Proposed:", call.args);
+                        setTaskPlan({
+                            current_goal: call.args.goal,
+                            next_step: call.args.next_step,
+                            safety_checks: call.args.safety_checks,
+                            estimated_effort: call.args.effort,
+                            progress_pct: call.args.progress
+                        });
+                        clientRef.current?.sendToolResponse(call.id, call.name, "plan accepted, HUD updated.");
+                        continue;
+                    }
+
                     console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
                     
                     const newRequestId = Math.random().toString(36).substring(7);
@@ -361,5 +382,5 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     }
   }, [isMuted]);
 
-  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia };
+  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, taskPlan };
 }

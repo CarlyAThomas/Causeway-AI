@@ -2,6 +2,8 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect } from "react";
+import PlanningHUD from "./PlanningHUD";
+import { TaskPlan } from "@/types/workflow";
 
 interface Message {
   id: string;
@@ -15,9 +17,10 @@ interface AIStreamSidebarProps {
   isSpeaking: boolean;
   status: 'listening' | 'thinking' | 'speaking' | 'idle';
   volume?: number;
+  taskPlan: TaskPlan;
 }
 
-export default function AIStreamSidebar({ messages, isSpeaking, status, volume = 0 }: AIStreamSidebarProps) {
+export default function AIStreamSidebar({ messages, isSpeaking, status, volume = 0, taskPlan }: AIStreamSidebarProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom of conversation
@@ -97,6 +100,9 @@ export default function AIStreamSidebar({ messages, isSpeaking, status, volume =
             </div>
         </div>
       </div>
+
+      {/* Structured Planning HUD */}
+      <PlanningHUD plan={taskPlan} />
 
       {/* Primary Message Stream */}
       <div 
