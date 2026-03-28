@@ -160,16 +160,16 @@ export class GeminiLiveClient {
     const setupMsg = {
       setup: {
         model: `models/${this.config.model}`,
-        generation_config: {
-            response_modalities: ["audio"]
+        generationConfig: {
+            responseModalities: ["audio"]
         },
-        system_instruction: {
+        systemInstruction: {
             role: "system", 
             parts: [{ text: this.config.systemInstruction || "You are a helpful industrial assistant." }]
         },
         tools: [
             {
-              function_declarations: [
+              functionDeclarations: [
                 {
                   name: "generate_text_to_video",
                   description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
@@ -302,8 +302,8 @@ export class GeminiLiveClient {
     
     // [PROTOCOL]: Switching to snake_case (tool_response, function_responses)
     const toolMsg = {
-      tool_response: {
-        function_responses: [{
+      toolResponse: {
+        functionResponses: [{
           id: callId,
           name: name,
           response: typeof response === 'string' ? { status: response } : response
@@ -344,9 +344,9 @@ export class GeminiLiveClient {
         if (this.isEgressLocked) return;
 
         const msg = {
-          realtime_input: {
+          realtimeInput: {
             video: {
-              mime_type: 'image/jpeg',
+              mimeType: 'image/jpeg',
               data: base64Image
             }
           }
@@ -367,9 +367,9 @@ export class GeminiLiveClient {
     if (!base64Image || base64Image.length < 10) return;
 
     const msg = {
-      realtime_input: {
+      realtimeInput: {
         video: {
-          mime_type: 'image/jpeg',
+          mimeType: 'image/jpeg',
           data: base64Image
         }
       }
@@ -391,9 +391,9 @@ export class GeminiLiveClient {
     if (this.isEgressLocked) return;
 
     const msg = {
-      realtime_input: {
+      realtimeInput: {
         audio: {
-          mime_type: 'audio/pcm;rate=16000',
+          mimeType: 'audio/pcm;rate=16000',
           data: base64Pcm
         }
       }
@@ -413,12 +413,12 @@ export class GeminiLiveClient {
       this.isEgressLocked = true;
       
       const msg = {
-          client_content: {
+          clientContent: {
               turns: [{
                   role: 'user',
                   parts: parts
               }],
-              turn_complete: turnComplete
+              turnComplete: turnComplete
           }
       };
       
@@ -447,12 +447,12 @@ export class GeminiLiveClient {
     this.isEgressLocked = true;
 
     const msg = {
-      client_content: {
+      clientContent: {
         turns: [{
           role: "user",
           parts: [{ text }]
         }],
-        turn_complete: turnComplete
+        turnComplete: turnComplete
       }
     };
     
