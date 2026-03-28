@@ -10,7 +10,7 @@ import { MediaRequest } from "@/types";
  * useGeminiLive
  * Real-time multimodal hook to connect vision and voice to Gemini Live.
  */
-export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>) {
+export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>, onSelectMedia?: (id: string) => void) {
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -26,6 +26,12 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
+  const mediaQueueRef = useRef<MediaRequest[]>([]);
+
+  // Keep ref sync'd with state for tool call access
+  useEffect(() => {
+    mediaQueueRef.current = mediaQueue;
+  }, [mediaQueue]);
 
   const connect = useCallback(async () => {
     if (clientRef.current) return;
@@ -42,10 +48,17 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         apiKey, 
         model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
-          You are a professional task assistant. 
+          FOCUS LOCK: You MUST completely ignore any background noise, side conversations, or other people moving around in the camera frame. Exclusively pay attention to the primary user directly in front of the camera and the specific physical task they are actively working on.
+          You are a hands-on AI Physical Task Assistant.
           Always respond in English.
-          Use the provided camera frames and user audio to give precise, conversational instructions.
-          Always prioritize clarity.
+          Use the provided camera frames and user audio to give precise, step-by-step instructions.
+          Wait for the user to complete the current physical action before moving on to the next.
+
+          MEDIA HISTORY:
+          - You can check what videos have been generated with the \`query_media_cache\` tool.
+          - You can explicitly show a specific video from the gallery to the user using \`select_media_item(id)\`.
+          - If the user asks to "see that again" or "go back to the previous step's video", query the cache first to find the ID.
+
           When you use a video generation tool to demonstrate something, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
           Do NOT mention the Veo app or say you cannot send videos directly.
         `.trim()
@@ -62,6 +75,25 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 for (const call of functionCalls) {
                     console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
                     
+                    if (call.name === 'query_media_cache') {
+                        const history = mediaQueueRef.current.slice(0, 5).map(m => ({
+                            id: m.id,
+                            prompt: m.prompt,
+                            status: m.status,
+                            timestamp: m.timestamp
+                        }));
+                        clientRef.current?.sendToolResponse(call.id, call.name, { history });
+                        continue;
+                    }
+
+                    if (call.name === 'select_media_item') {
+                        const targetId = call.args.id;
+                        if (onSelectMedia) onSelectMedia(targetId);
+                        clientRef.current?.sendToolResponse(call.id, call.name, `Successfully selected item ${targetId}`);
+                        continue;
+                    }
+
+                    const isVideo = call.name.includes('video');
                     const newRequestId = Math.random().toString(36).substring(7);
                     
                     // Add to Media Queue
@@ -164,7 +196,44 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             const modelTurn = serverContent.modelTurn || serverContent.model_turn;
             if (modelTurn?.parts) {
                 modelTurn.parts.forEach((p: any) => {
-                    // Handle Audio Responses inside parts (fallback)
+                    // DEEP AUDIT: Log all part types to find implicit transcripts
+                    console.log("Gemini Live PART AUDIT:", p);
+
+                    // Standard Text or Implicit Transcript Variants
+                    const transcript = p.text || p.transcript || p.interim_transcript || p.interimResult;
+                    if (transcript) {
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            if (lastMsg && lastMsg.role === 'ai' && !lastMsg.isComplete) {
+                                // Append to the actively streaming AI message block
+                                return [
+                                    ...prev.slice(0, -1),
+                                    { ...lastMsg, text: lastMsg.text + transcript }
+                                ];
+                            } else {
+                                // Create a new AI message block
+                                return [...prev.slice(-15), { 
+                                    id: Math.random().toString(36), 
+                                    role: 'ai', 
+                                    text: transcript, 
+                                    agent: 'Gemini',
+                                    isComplete: false
+                                }];
+                            }
+                        });
+                    }
+
+                    // Thinking Capture (Implicit reasoning?)
+                    if (p.thought || p.thought_process) {
+                        setMessages(prev => [...prev.slice(-15), { 
+                            id: Math.random().toString(36), 
+                            role: 'ai', 
+                            text: `[THINKING]: ${p.thought || p.thought_process}`, 
+                            agent: 'Gemini (Thinking)' 
+                        }]);
+                    }
+
+                    // Handle Audio Responses (fallback)
                     const audioData = p.inlineData?.data || p.inline_data?.data;
                     if (audioData && pcmPlayerRef.current) {
                         console.log("Gemini Live: Found audio in modelTurn parts.");
@@ -201,6 +270,16 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             if (serverContent.turnComplete || serverContent.turn_complete) {
                 isAiTurnLockedRef.current = true;
                 setStatus('listening');
+                setMessages(prev => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === 'ai') {
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...lastMsg, isComplete: true }
+                        ];
+                    }
+                    return prev;
+                });
             }
         }
       },
@@ -285,7 +364,13 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     }, 500);
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: { 
+                noiseSuppression: true, 
+                echoCancellation: true, 
+                autoGainControl: true 
+            } 
+        });
         streamRef.current = stream;
         await audioContext.audioWorklet.addModule('/worklets/pcm-processor.js');
         const source = audioContext.createMediaStreamSource(stream);
@@ -308,7 +393,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         console.error("Mic Access Error:", err);
         setStatus('error');
     }
-  }, [videoRef]);
+  }, [videoRef, onSelectMedia]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) clientRef.current.disconnect();

@@ -19,18 +19,25 @@ export default function Home() {
   // Ref for the main camera element to provide vision context to Gemini
   const mainVideoRef = useRef<HTMLVideoElement>(null);
 
-  const { 
-    messages, 
-    status, 
-    isSpeaking, 
-    volume, 
-    isMuted, 
-    setIsMuted, 
-    connect, 
-    disconnect, 
-    mediaQueue, 
-    cancelMedia 
-  } = useGeminiLive(mainVideoRef);
+  const {
+     messages, 
+     status, 
+     isSpeaking, 
+     volume, 
+     isMuted, 
+     setIsMuted, 
+     connect, 
+     disconnect, 
+     mediaQueue, 
+     cancelMedia 
+  } = useGeminiLive(
+    mainVideoRef,
+    (id) => {
+      setActiveMediaId(id);
+      setIsCameraMinimized(true);
+      setMainView('veo');
+    }
+  );
 
   const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
 

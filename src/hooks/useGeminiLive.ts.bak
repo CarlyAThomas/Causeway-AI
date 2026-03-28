@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import type { RefObject } from 'react';
 
-export function useGeminiLive(
-  videoRef: RefObject<HTMLVideoElement | null>,
-  onVideoGenerated: (url: string) => void,
-  onGuideStarted: () => void
-) {
+export function useGeminiLive() {
   const [isConnected, setIsConnected] = useState(false);
   const [isSetupComplete, setIsSetupComplete] = useState(false); // <--- NEW: Track safe streaming state
   const [messages, setMessages] = useState<string[]>([]); 
@@ -16,7 +11,6 @@ export function useGeminiLive(
   const [generationProgress, setGenerationProgress] = useState<string>('');
   
   const wsRef = useRef<WebSocket | null>(null);
-  const isTurnCompleteRef = useRef<boolean>(true);
 
   const connect = useCallback((apiKey: string) => {
     if (!apiKey) {
@@ -38,33 +32,38 @@ export function useGeminiLive(
         setup: {
           model: "models/gemini-3.1-flash-live-preview",
           generationConfig: {
-            responseModalities: ["AUDIO", "TEXT"],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+            responseModalities: ["TEXT"] // Force text output so we don't accidentally receive raw audio blocks causing a crash
           },
           systemInstruction: {
-            parts: [{ text: "Role: You are an interactive, hands-on AI Physical Task Assistant. Your goal is to guide the user step-by-step to solve anything they have to do by hand (e.g. changing a car tire, cooking, fixing a pipe).\n\nRules:\n1. FOCUS LOCK: You MUST completely ignore any background noise, side conversations, or other people moving around in the camera frame. Exclusively pay attention to the primary user directly in front of the camera and the specific physical task they are actively working on.\n2. Observe the user's live video feed to verify their physical space and actions.\n3. Do NOT give multiple steps at once. Wait for the user to complete the current physical action before moving on to the next.\n4. Show, Don't Tell: When you ask the user to do a complex physical action, use the `generate_image_to_video` tool (using a prompt based on their current webcam view) or `generate_text_to_video` (for a general 3D animation) to generate a short video tutorial of what they should do.\n5. Keep vocal instructions short, clear, and encouraging." }]
+            parts: [{ text: "You are a physical task assistant. Watch the video feed and guide the user step by step safely. Keep instructions short and concise. If the user needs a complex visual demonstration, use the available tools to generate a video for them. When you use a video generation tool, explicitly say 'I am generating a video for you now, it will appear on your screen shortly, but it may take a few minutes.' Do NOT mention the Veo app or say you are unable to send videos directly." }]
           },
           tools: [
             {
               functionDeclarations: [
                 {
                   name: "generate_text_to_video",
-                  description: "Use this to show a general 3D animation or video of a step.",
+                  description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
                   parameters: {
                     type: "OBJECT",
                     properties: {
-                      prompt: { type: "STRING", description: "A highly descriptive, visual instruction of what to render." }
+                      prompt: {
+                        type: "STRING",
+                        description: "A highly descriptive, visual-focused prompt instructing the video generation model exactly what to render. (e.g. 'Show a person turning a lug wrench counter-clockwise')."
+                      }
                     },
                     required: ["prompt"]
                   }
                 },
                 {
                   name: "generate_image_to_video",
-                  description: "Use this to show a video demonstrating an action starting from the user's current literal camera view.",
+                  description: "Use this when the user asks what to do with a specific object currently shown on their camera. This generates a video showing an action contextually starting from their current real-world state.",
                   parameters: {
                     type: "OBJECT",
                     properties: {
-                      prompt: { type: "STRING", description: "A highly descriptive action prompt explaining what to do to the object in the camera frame." }
+                      prompt: {
+                        type: "STRING",
+                        description: "A highly descriptive action prompt explaining what should happen to the object in the user's current camera frame."
+                      }
                     },
                     required: ["prompt"]
                   }
@@ -122,30 +121,9 @@ export function useGeminiLive(
           const parts = response.serverContent.modelTurn.parts;
           for (const part of parts) {
             if (part.text) {
-              const startNewTurn = isTurnCompleteRef.current;
-              // Mutate immediately for subsequent chunks in the loop
-              isTurnCompleteRef.current = false;
-              
-              setMessages(prev => {
-                const newMessages = [...prev];
-                if (startNewTurn) {
-                  newMessages.push(`Gemini: ${part.text}`);
-                } else {
-                  const lastIdx = newMessages.length - 1;
-                  if (lastIdx >= 0 && newMessages[lastIdx].startsWith("Gemini:")) {
-                    newMessages[lastIdx] += part.text;
-                  } else {
-                    newMessages.push(`Gemini: ${part.text}`);
-                  }
-                }
-                return newMessages;
-              });
+              setMessages(prev => [...prev, `Gemini: ${part.text}`]);
             }
           }
-        }
-
-        if (response.serverContent?.turnComplete) {
-          isTurnCompleteRef.current = true;
         }
         
         // Handle incoming function declarations/tool calls
@@ -157,9 +135,6 @@ export function useGeminiLive(
             setIsVideoGenerating(true);
             setGenerationProgress("Initiating video generation...");
             setGeneratedVideoUrl(null);
-            
-            // Trigger the Frontend PIP Mode
-            onGuideStarted();
             
             // NOTE: Here is where we will hook up our backend route to trigger Veo
             // Fire and forget the tool call in background
@@ -191,18 +166,15 @@ export function useGeminiLive(
                             setGenerationProgress("Video Generation Complete!");
                             
                             // The response often returns response.generatedVideo.uri 
-                            let foundUri = null;
                             if (pollData.data?.response?.generatedVideo?.uri) {
-                               foundUri = pollData.data.response.generatedVideo.uri;
+                               setGeneratedVideoUrl(pollData.data.response.generatedVideo.uri);
                             } else if (pollData.data?.response?.videoUri) {
-                               foundUri = pollData.data.response.videoUri;
+                               setGeneratedVideoUrl(pollData.data.response.videoUri);
                             } else {
                                // Fallback if structure changes
-                               foundUri = "https://storage.googleapis.com/";
+                               setGeneratedVideoUrl("https://storage.googleapis.com/");
                                console.log("Could not find video URI in generation response:", pollData.data);
                             }
-                            setGeneratedVideoUrl(foundUri);
-                            onVideoGenerated(foundUri);
                          }
                       }
                       
@@ -284,10 +256,5 @@ export function useGeminiLive(
     wsRef.current.send(JSON.stringify(msg));
   }, [isSetupComplete]);
 
-  // Stub missing variables that page.tsx expects
-  const status = isVideoGenerating ? 'generating' : (isConnected ? (isSetupComplete ? 'connected' : 'idle') : 'idle');
-  const isSpeaking = false;
-  const volume = 0;
-
-  return { isConnected, isSetupComplete, connect, disconnect, sendFrame, messages, generatedVideoUrl, isVideoGenerating, generationProgress, status, isSpeaking, volume };
+  return { isConnected, isSetupComplete, connect, disconnect, sendFrame, messages, generatedVideoUrl, isVideoGenerating, generationProgress };
 }

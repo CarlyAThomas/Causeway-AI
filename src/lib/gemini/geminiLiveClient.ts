@@ -118,6 +118,28 @@ export class GeminiLiveClient {
                     },
                     required: ["prompt"]
                   }
+                },
+                {
+                  name: "query_media_cache",
+                  description: "Get a list of the user's recently generated media items (videos/images) and their status.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {}
+                  }
+                },
+                {
+                  name: "select_media_item",
+                  description: "Switch the user's primary focus to a specific media item from their gallery by its ID.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      id: {
+                        type: "STRING",
+                        description: "The unique ID of the media item to select."
+                      }
+                    },
+                    required: ["id"]
+                  }
                 }
               ]
             }
@@ -129,7 +151,7 @@ export class GeminiLiveClient {
     this.socket.send(JSON.stringify(setupMsg));
   }
 
-  public sendToolResponse(callId: string, name: string, responseStatus: string) {
+  public sendToolResponse(callId: string, name: string, response: any) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     
     // In Gemini Live API, tool responses are sent via the root level `toolResponse` key.
@@ -138,7 +160,7 @@ export class GeminiLiveClient {
         functionResponses: [{
           id: callId,
           name: name,
-          response: { status: responseStatus }
+          response: typeof response === 'string' ? { status: response } : response
         }]
       }
     };
