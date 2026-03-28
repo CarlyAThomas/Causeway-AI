@@ -84,7 +84,7 @@ Continuous loop:
 - [X] **State Synchronization (Memory/Tooling):** Add a `query_media_cache` tool for Gemini to check the user's media history and pull up videos to co-review with the user.
 - [X] **Sharing Capabilities:** Add the ability to share (export) generated images/videos externally, as well as an upload/share mechanism (import) for users to send existing images or videos *to* Gemini for context understanding if they can't point their live camera at it.
 - [X] **Task State Machine:** Implement robust workflow state logging for deterministic physical tasks (e.g., changing a tire).
-- [ ] **Safety Guidelines:** Define strict system safety instructions for each critical step in the AI orchestration prompts.
+- [X] **Safety Guidelines:** Define strict system safety instructions for each critical step in the AI orchestration prompts.
 - [ ] **Demo Mode & Fallbacks:** Create a deterministic demo script with local fallback assets to handle potential network or API instability during hackathon judging.
 - [ ] **Interactive Framed Edit Mode:** Allow a user to pause on a frame of a video or a static image, enter an editing mode, and point/annotate/draw on it to get clarification on specific components (e.g., "What is *this* particular lug nut?").
 
