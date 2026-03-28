@@ -8,7 +8,7 @@ interface PlanningHUDProps {
 }
 
 export default function PlanningHUD({ plan }: PlanningHUDProps) {
-  const { current_goal, next_step, safety_checks, estimated_effort, progress_pct } = plan;
+  const { current_goal, next_step, safety_checks, estimated_effort, progress_pct, required_tools } = plan;
 
   return (
     <div className="space-y-4 mb-6 shrink-0">
@@ -84,6 +84,28 @@ export default function PlanningHUD({ plan }: PlanningHUDProps) {
             </div>
         </div>
       </div>
+
+      {/* Required Tools Checklist */}
+      {required_tools.length > 0 && (
+        <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4">
+          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-400 mb-3">Required Tools</p>
+          <div className="space-y-2">
+            {required_tools.map((tool, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${tool.detected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-white/10'}`} />
+                  <span className={`text-[11px] font-medium ${tool.detected ? 'text-white' : 'text-white/40'}`}>
+                    {tool.name}
+                  </span>
+                </div>
+                {tool.detected && (
+                  <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-400/80">Sighted</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

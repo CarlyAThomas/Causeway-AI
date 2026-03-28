@@ -94,7 +94,8 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                             next_step: call.args.next_step,
                             safety_checks: call.args.safety_checks,
                             estimated_effort: call.args.effort,
-                            progress_pct: call.args.progress
+                            progress_pct: call.args.progress,
+                            required_tools: call.args.required_tools || []
                         });
                         clientRef.current?.sendToolResponse(call.id, call.name, "plan accepted, HUD updated.");
                         continue;
@@ -117,6 +118,22 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                         const targetId = call.args.id;
                         if (onSelectMedia) onSelectMedia(targetId);
                         clientRef.current?.sendToolResponse(call.id, call.name, `Successfully selected item ${targetId}`);
+                        continue;
+                    }
+
+                    if (call.name === 'update_perception') {
+                        const updatedTools = call.args.tools;
+                        setTaskPlan(prev => ({
+                            ...prev,
+                            required_tools: prev.required_tools.map(t => {
+                                const update = updatedTools.find((ut: any) => ut.name.toLowerCase() === t.name.toLowerCase());
+                                if (update) {
+                                    return { ...t, detected: update.detected, boundingBox: update.boundingBox };
+                                }
+                                return t;
+                            })
+                        }));
+                        clientRef.current?.sendToolResponse(call.id, call.name, "perception updated.");
                         continue;
                     }
 

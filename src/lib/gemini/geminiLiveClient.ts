@@ -83,14 +83,14 @@ export class GeminiLiveClient {
       setup: {
         model: `models/${this.config.model}`,
         generation_config: {
-            response_modalities: ["AUDIO"]
+            response_modalities: ["audio"]
         },
-        system_instruction: this.config.systemInstruction 
-            ? { parts: [{ text: this.config.systemInstruction }] }
-            : { parts: [{ text: "You are a helpful assistant." }] },
+        system_instruction: {
+            parts: [{ text: this.config.systemInstruction || "You are a professional task assistant." }]
+        },
         tools: [
             {
-              functionDeclarations: [
+              function_declarations: [
                 {
                   name: "generate_text_to_video",
                   description: "Use this when the user needs a visual demonstration of a concept, or asks how to do something, and you want to show them a generated video of the action.",
@@ -146,9 +146,44 @@ export class GeminiLiveClient {
                       progress: {
                         type: "NUMBER",
                         description: "Overall task progress (0.0 to 1.0)."
+                      },
+                      required_tools: {
+                        type: "ARRAY",
+                        items: {
+                          type: "OBJECT",
+                          properties: {
+                            name: { type: "STRING" }
+                          }
+                        },
+                        description: "List of specific tools needed for this task."
                       }
                     },
-                    required: ["goal", "next_step", "safety_checks", "effort", "progress"]
+                    required: ["goal", "next_step", "safety_checks", "effort", "progress", "required_tools"]
+                  }
+                },
+                {
+                  name: "update_perception",
+                  description: "Use this to report the current status and spatial location (bounding box) of required tools.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      tools: {
+                        type: "ARRAY",
+                        items: {
+                          type: "OBJECT",
+                          properties: {
+                            name: { type: "STRING" },
+                            detected: { type: "BOOLEAN" },
+                            boundingBox: {
+                              type: "ARRAY",
+                              items: { type: "NUMBER" },
+                              description: "[ymin, xmin, ymax, xmax] (0-1000)"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    required: ["tools"]
                   }
                 },
                 {
@@ -186,10 +221,10 @@ export class GeminiLiveClient {
   public sendToolResponse(callId: string, name: string, response: any) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     
-    // In Gemini Live API, tool responses are sent via the root level `toolResponse` key.
+    // In Gemini Live API, tool responses are sent via the root level `tool_response` key.
     const toolMsg = {
-      toolResponse: {
-        functionResponses: [{
+      tool_response: {
+        function_responses: [{
           id: callId,
           name: name,
           response: typeof response === 'string' ? { status: response } : response
@@ -226,9 +261,9 @@ export class GeminiLiveClient {
     }
 
     const msg = {
-      realtimeInput: {
+      realtime_input: {
         video: {
-          mimeType: 'image/jpeg',
+          mime_type: 'image/jpeg',
           data: base64Image
         }
       }
@@ -268,15 +303,35 @@ export class GeminiLiveClient {
     if (!base64Pcm || base64Pcm.length < 5) return;
 
     const msg = {
-      realtimeInput: {
+      realtime_input: {
         audio: {
-          mimeType: 'audio/pcm;rate=16000',
+          mime_type: 'audio/pcm;rate=16000',
           data: base64Pcm
         }
       }
     };
 
     this.socket.send(JSON.stringify(msg));
+  }
+  
+  /**
+   * Sends generic client content (e.g. text for State Sync)
+   */
+  public sendClientContent(parts: any[], turnComplete: boolean = true) {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+      
+      const msg = {
+          client_content: {
+              turns: [{
+                  role: 'user',
+                  parts: parts
+              }],
+              turn_complete: turnComplete
+          }
+      };
+      
+      console.log("🔵 OUTGOING [ClientContent]:", JSON.stringify(msg));
+      this.socket.send(JSON.stringify(msg));
   }
 
   public disconnect() {

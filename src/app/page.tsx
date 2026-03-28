@@ -156,6 +156,7 @@ export default function Home() {
                         onToggleMute={() => setIsMuted(!isMuted)} 
                         isCameraOff={isCameraOff} 
                         onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+                        tools={taskPlan.required_tools}
                     />
                   </div>
                 )}
@@ -265,6 +266,7 @@ export default function Home() {
             onToggleMute={() => setIsMuted(!isMuted)} 
             isCameraOff={isCameraOff} 
             onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+            tools={taskPlan.required_tools}
           />
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/pip:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[3px] gap-3">
             <button 
