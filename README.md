@@ -78,6 +78,7 @@ Continuous loop:
 - [x] **Video Request Queueing:** Currently, if Gemini calls the video generation tool multiple times in succession, the first request is tracked while others may drop or overwrite the active player state. We need a request tracking queue.
 - [x] **Media Gallery UI (Asynchronous UI):** Replace the blocking full-screen loading state for Veo video generation. Add a side gallery for pending, generating, and completed media. Allow users to select generated frames/videos from the gallery to view at their convenience without interrupting the live camera session.
 - [x] **Media Session History:** Store a temporary cache of generated videos and images so users don't lose media once they transition back to the live camera view. Allow traversing past generated guides.
+- [x] **Mute On/Off:** Mute on/off microphone.
 - [ ] **State Synchronization (Completion Sync):** Send system events to Gemini when a video generation request completes so the model knows the media is available.
 - [ ] **State Synchronization (Attention Sync):** Notify Gemini when the user changes their active view (e.g., switches between live camera and looking at a generated video).
 - [ ] **State Synchronization (Memory/Tooling):** Add a `query_media_cache` tool for Gemini to check the user's media history and pull up videos to co-review with the user.

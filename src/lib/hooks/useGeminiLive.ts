@@ -144,15 +144,33 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         
         const serverContent = msg.serverContent || msg.server_content;
         if (serverContent) {
+            // Forensic Audit: Log structure to see where audio is hiding
+            console.log("Gemini Live: ServerContent Keys:", Object.keys(serverContent));
+            
+            // Context Wake-up: Force resume to bypass browser auto-suspension
+            if (audioContextRef.current?.state === 'suspended') {
+                audioContextRef.current.resume();
+            }
+
+            // [NEW] Broad Audio Hook: Check top-level fields (common in v1beta/v1alpha variants)
+            const topLevelAudio = serverContent.audio || serverContent.audio_content || serverContent.audioContent;
+            if (topLevelAudio?.data && pcmPlayerRef.current) {
+                console.log("Gemini Live: FOUND TOP-LEVEL AUDIO DATA. Feeding to player.");
+                pcmPlayerRef.current.feed(topLevelAudio.data);
+                setIsSpeaking(true);
+                setTimeout(() => setIsSpeaking(false), 500);
+            }
+
             const modelTurn = serverContent.modelTurn || serverContent.model_turn;
             if (modelTurn?.parts) {
                 modelTurn.parts.forEach((p: any) => {
-                    // Handle Audio Responses
+                    // Handle Audio Responses inside parts (fallback)
                     const audioData = p.inlineData?.data || p.inline_data?.data;
                     if (audioData && pcmPlayerRef.current) {
+                        console.log("Gemini Live: Found audio in modelTurn parts.");
                         pcmPlayerRef.current.feed(audioData);
                         setIsSpeaking(true);
-                        setTimeout(() => setIsSpeaking(false), 500);
+                        setTimeout(() => setIsSpeaking(false), 2000); // Longer speaking window for visualizer
                     }
                 });
             }
@@ -165,7 +183,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                     if (lastMsg && lastMsg.role === 'ai' && !isAiTurnLockedRef.current) {
                         return [
                             ...prev.slice(0, -1),
-                            { ...lastMsg, text: lastMsg.text + transcription.text }
+                            { ...lastMsg, text: lastMsg.text + transcription.text, timestamp: Date.now() }
                         ];
                     } else {
                         isAiTurnLockedRef.current = false;
@@ -173,7 +191,8 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                             id: Math.random().toString(36), 
                             role: 'ai', 
                             text: transcription.text, 
-                            agent: 'Gemini Live' 
+                            agent: 'Gemini Live',
+                            timestamp: Date.now()
                         } ];
                     }
                 });
@@ -213,18 +232,41 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
             setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
-                if (lastMsg && lastMsg.role === 'user' && lastMsg.id === 'user-interim') {
-                    return [...prev.slice(0, -1), { ...lastMsg, text: transcript }];
+                const now = Date.now();
+                
+                // Merge logic: If last message was user and within 4 seconds, merge it.
+                const isRecentUserMessage = lastMsg && lastMsg.role === 'user' && (now - (lastMsg.timestamp || 0) < 4000);
+
+                if (isRecentUserMessage) {
+                    // Update/Merge with the existing user message
+                    // If it was an interim message, we replace text. If it was finalized, we append with a space.
+                    const isInterim = lastMsg.id.startsWith('user-interim-');
+                    const newText = isInterim ? transcript : (lastMsg.text + " " + transcript);
+                    
+                    return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, text: newText, timestamp: now }
+                    ];
                 } else {
-                    return [...prev.slice(-15), { id: 'user-interim', role: 'user', text: transcript, agent: 'You' }];
+                    // Create a new user message block
+                    return [...prev.slice(-15), { 
+                        id: `user-interim-${now}`, 
+                        role: 'user', 
+                        text: transcript, 
+                        agent: 'You',
+                        timestamp: now
+                    }];
                 }
             });
 
             if (isFinal) {
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
-                    if (lastMsg && lastMsg.id === 'user-interim') {
-                        return [...prev.slice(0, -1), { ...lastMsg, id: Math.random().toString(36) }];
+                    if (lastMsg && lastMsg.id.startsWith('user-interim-')) {
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...lastMsg, id: Math.random().toString(36), timestamp: Date.now() }
+                        ];
                     }
                     return prev;
                 });
@@ -291,10 +333,31 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
   useEffect(() => {
     isMutedRef.current = isMuted;
+    
+    // Hardware Sync: Disable/Enable Mic Track
     if (streamRef.current) {
         streamRef.current.getAudioTracks().forEach(track => {
             track.enabled = !isMuted;
         });
+    }
+
+    // STT Sync: Restart Recognition on Unmute to ensure clean hardware buffer
+    if (recognitionRef.current) {
+        try {
+            if (isMuted) {
+                console.log("STT: Muted. Stopping recognition...");
+                recognitionRef.current.stop();
+            } else {
+                console.log("STT: Unmuted. Restarting recognition...");
+                // Note: stop() before start() ensures we don't have overlapping sessions
+                recognitionRef.current.stop();
+                setTimeout(() => {
+                    try { recognitionRef.current.start(); } catch(e) { /* ignore already started */ }
+                }, 100);
+            }
+        } catch (err) {
+            console.error("STT Sync Error:", err);
+        }
     }
   }, [isMuted]);
 

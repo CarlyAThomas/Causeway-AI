@@ -12,6 +12,8 @@ export default function Home() {
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
   const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [mainView, setMainView] = useState<'camera' | 'veo'>('camera');
+  const userManuallyPausedMedia = useRef(false);
   const constraintsRef = useRef(null);
   
   // Ref for the main camera element to provide vision context to Gemini
@@ -34,10 +36,24 @@ export default function Home() {
 
   // Auto-activate a new media item if we don't have one active and a new one arrives
   useEffect(() => {
-    if (!activeMediaId && mediaQueue.length > 0) {
-      // setActiveMediaId(mediaQueue[0].id);
+    if (mediaQueue.length > 0) {
+      // If a brand new item started (pending), we always focus it and reset the manual pause
+      if (mediaQueue[0].status === 'pending') {
+          userManuallyPausedMedia.current = false;
+          setActiveMediaId(mediaQueue[0].id);
+          setIsCameraMinimized(true);
+          setMainView('veo');
+          return;
+      }
+
+      // Otherwise, only auto-focus if we don't have an active media and the user hasn't explicitly clicked 'Live Feed'
+      if (!activeMediaId && !userManuallyPausedMedia.current) {
+          setActiveMediaId(mediaQueue[0].id);
+          setIsCameraMinimized(true);
+          setMainView('veo');
+      }
     }
-  }, [mediaQueue, activeMediaId]);
+  }, [mediaQueue.length, activeMediaId]);
 
   const requestVisualGuide = () => {
     connect();
@@ -47,11 +63,14 @@ export default function Home() {
     disconnect();
     setIsCameraMinimized(false);
     setActiveMediaId(null);
+    setMainView('camera');
   };
 
   const recenterCamera = () => {
     setIsCameraMinimized(false);
     setActiveMediaId(null);
+    setMainView('camera');
+    userManuallyPausedMedia.current = true;
   };
 
   const showVisualGuide = () => {
@@ -59,6 +78,7 @@ export default function Home() {
         setActiveMediaId(mediaQueue[0].id);
     }
     setIsCameraMinimized(true);
+    setMainView('veo');
   };
 
   return (
@@ -85,12 +105,14 @@ export default function Home() {
                      onSelect={(media) => {
                          setActiveMediaId(media.id);
                          setIsCameraMinimized(true);
+                         setMainView('veo');
                      }}
                      onCancel={(id) => {
                          cancelMedia(id);
                          if (activeMediaId === id) {
                              setActiveMediaId(null);
                              setIsCameraMinimized(false);
+                             setMainView('camera');
                          }
                      }}
                   />
@@ -101,8 +123,11 @@ export default function Home() {
             {/* Main Player */}
             <div className="relative w-full h-[300px] md:h-full flex-grow">
               <div className="w-full h-full">
-                {activeMedia ? (
-                  <VeoPlayer videoUrl={activeMedia.url} isLoading={activeMedia.status !== 'completed'} />
+                {mainView === 'veo' ? (
+                  <VeoPlayer 
+                    videoUrl={activeMedia?.url} 
+                    isLoading={!!activeMedia && activeMedia.status !== 'completed'} 
+                  />
                 ) : (
                   <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
                     <CameraStream 
