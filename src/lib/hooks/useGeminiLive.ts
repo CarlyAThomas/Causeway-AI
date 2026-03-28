@@ -5,6 +5,7 @@ import { GeminiLiveClient, GeminiLiveStatus } from "../gemini/geminiLiveClient";
 import { floatTo16BitPCM, arrayBufferToBase64 } from "../audio/pcm-utils";
 import { PCMPlayer } from "../audio/audio-manager";
 import { MediaRequest } from "@/types";
+import { TaskPlan, INITIAL_PLAN } from "@/types/workflow";
 
 /**
  * useGeminiLive
@@ -17,6 +18,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0);
   const [mediaQueue, setMediaQueue] = useState<MediaRequest[]>([]);
+  const [taskPlan, setTaskPlan] = useState<TaskPlan>(INITIAL_PLAN);
   
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const isMutedRef = useRef(isMuted);
@@ -49,17 +51,23 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
           FOCUS LOCK: You MUST completely ignore any background noise, side conversations, or other people moving around in the camera frame. Exclusively pay attention to the primary user directly in front of the camera and the specific physical task they are actively working on.
-          You are a hands-on AI Physical Task Assistant.
-          Always respond in English.
+          You are a professional hands-on AI Physical Task Assistant.
+          Respond in English.
           Use the provided camera frames and user audio to give precise, step-by-step instructions.
-          Wait for the user to complete the current physical action before moving on to the next.
+
+          THE PLANNING LOOP:
+          1. OBSERVE: Detect tools and object states in the video frame. 
+          2. PLAN: Use 'propose_plan' BEFORE media generation to declare your strategy and safety steps.
+          3. ACT: Trigger 'generate_text_to_video' or 'generate_image_to_video' to show the user what to do.
+          4. VERIFY: Confirm completion before moving to the next goal.
 
           MEDIA HISTORY:
           - You can check what videos have been generated with the \`query_media_cache\` tool.
           - You can explicitly show a specific video from the gallery to the user using \`select_media_item(id)\`.
           - If the user asks to "see that again" or "go back to the previous step's video", query the cache first to find the ID.
 
-          When you use a video generation tool to demonstrate something, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
+          Safety is your TOP PRIORITY. Always check for prerequisites like 'parking brake' or 'stable jack' in your plan.
+          When you use a video generation tool, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
           Do NOT mention the Veo app or say you cannot send videos directly.
         `.trim()
       },
@@ -73,6 +81,19 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
             
             if (functionCalls) {
                 for (const call of functionCalls) {
+                    if (call.name === 'propose_plan') {
+                        console.log("📝 Plan Proposed:", call.args);
+                        setTaskPlan({
+                            current_goal: call.args.goal,
+                            next_step: call.args.next_step,
+                            safety_checks: call.args.safety_checks,
+                            estimated_effort: call.args.effort,
+                            progress_pct: call.args.progress
+                        });
+                        clientRef.current?.sendToolResponse(call.id, call.name, "plan accepted, HUD updated.");
+                        continue;
+                    }
+
                     console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
                     
                     if (call.name === 'query_media_cache') {
@@ -446,5 +467,5 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     }
   }, [isMuted]);
 
-  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia };
+  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, taskPlan };
 }

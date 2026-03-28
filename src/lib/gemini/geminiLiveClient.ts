@@ -120,6 +120,38 @@ export class GeminiLiveClient {
                   }
                 },
                 {
+                  name: "propose_plan",
+                  description: "Use this before any media generation or major instruction to declare your current goal, the immediate next step, and any safety checks. This updates the user's Planning HUD.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      goal: {
+                        type: "STRING",
+                        description: "The overall mission or objective (e.g., 'Raise the vehicle safely')."
+                      },
+                      next_step: {
+                        type: "STRING",
+                        description: "The immediate physical action the user should take."
+                      },
+                      safety_checks: {
+                        type: "ARRAY",
+                        items: { type: "string" },
+                        description: "A list of critical safety verifications for this plan."
+                      },
+                      effort: {
+                        type: "STRING",
+                        enum: ["low", "medium", "high"],
+                        description: "How much physical effort or complexity this step involves."
+                      },
+                      progress: {
+                        type: "NUMBER",
+                        description: "Overall task progress (0.0 to 1.0)."
+                      }
+                    },
+                    required: ["goal", "next_step", "safety_checks", "effort", "progress"]
+                  }
+                },
+                {
                   name: "query_media_cache",
                   description: "Get a list of the user's recently generated media items (videos/images) and their status.",
                   parameters: {

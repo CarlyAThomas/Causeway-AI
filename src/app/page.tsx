@@ -29,7 +29,8 @@ export default function Home() {
      connect, 
      disconnect, 
      mediaQueue, 
-     cancelMedia 
+     cancelMedia,
+     taskPlan 
   } = useGeminiLive(
     mainVideoRef,
     (id) => {
@@ -157,6 +158,7 @@ export default function Home() {
                 isSpeaking={isSpeaking} 
                 status={status as any} 
                 volume={volume}
+                taskPlan={taskPlan}
             />
           </div>
         </div>
