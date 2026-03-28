@@ -238,6 +238,27 @@ export class GeminiLiveClient {
   }
 
   /**
+   * Explicitly sends a static base64-encoded JPEG frame to Gemini.
+   * Useful for "Importing Context" via file uploads.
+   */
+  public sendBase64Frame(base64Image: string) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.isReady) return;
+    if (!base64Image || base64Image.length < 10) return;
+
+    const msg = {
+      realtimeInput: {
+        video: {
+          mimeType: 'image/jpeg',
+          data: base64Image
+        }
+      }
+    };
+
+    console.log("📤 OUTGOING [StaticContext]: Frame Injected");
+    this.socket.send(JSON.stringify(msg));
+  }
+
+  /**
    * Sends audio PCM data (16-bit, 16kHz or 24kHz)
    */
   public sendAudioChunk(base64Pcm: string) {

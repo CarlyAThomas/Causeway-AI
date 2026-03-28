@@ -30,7 +30,8 @@ export default function Home() {
      disconnect, 
      mediaQueue, 
      cancelMedia,
-     taskPlan 
+     taskPlan,
+     uploadStaticContext 
   } = useGeminiLive(
     mainVideoRef,
     (id) => {
@@ -39,6 +40,17 @@ export default function Home() {
       setMainView('veo');
     }
   );
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && uploadStaticContext) {
+        uploadStaticContext(file);
+    }
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
 
@@ -197,6 +209,29 @@ export default function Home() {
             }`}
           >
             {status === 'idle' ? 'Start Analysis' : 'Analyzing Input...'}
+          </button>
+
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            accept="image/*,video/*" 
+            className="hidden" 
+          />
+          
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={status === 'idle'}
+            className={`h-14 rounded-full border border-white/5 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-widest transition-all active:scale-95 ${
+                status === 'idle' 
+                ? 'opacity-20 cursor-not-allowed' 
+                : 'bg-white/5 hover:bg-white/10 text-white/60'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            Import Context
           </button>
         </div>
       </main>

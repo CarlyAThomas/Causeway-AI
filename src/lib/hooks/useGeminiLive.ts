@@ -68,6 +68,12 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
           Safety is your TOP PRIORITY. Always check for prerequisites like 'parking brake' or 'stable jack' in your plan.
           When you use a video generation tool, explicitly say 'I am generating a video for you now. It will appear on your screen shortly.' 
+          
+          IMPORT CONTEXT:
+          - If the user uploads an image or video frame for context (static snapshot), recognize it and analyze it as if it were a high-quality camera frame.
+          - Acknowledge the shared context by saying something like 'I see the image you shared...'
+          - Use this to give advice when the live camera cannot see the object.
+          
           Do NOT mention the Veo app or say you cannot send videos directly.
         `.trim()
       },
@@ -430,8 +436,47 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     pcmPlayerRef.current = null;
     recognitionRef.current = null;
     setVolume(0);
+    setVolume(0);
     setStatus('idle');
   }, []);
+
+  /**
+   * uploadStaticContext
+   * Converts a file (image/video) to Base64 and injects it into Gemini's vision buffer.
+   */
+  const uploadStaticContext = useCallback(async (file: File) => {
+    if (!clientRef.current || status !== 'listening') return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64 = e.target?.result as string;
+        if (!base64) return;
+
+        // Strip data:image/jpeg;base64, prefix
+        const base64Data = base64.split(',')[1];
+        
+        // Inject frame if client is ready
+        clientRef.current?.sendBase64Frame(base64Data);
+
+        // Notify UI
+        setMessages(prev => [...prev.slice(-15), {
+            id: Math.random().toString(36),
+            role: 'user',
+            text: `[SHARED CONTEXT]: ${file.name}`,
+            agent: 'You',
+            timestamp: Date.now()
+        }]);
+    };
+
+    if (file.type.startsWith('image/')) {
+        reader.readAsDataURL(file);
+    } else if (file.type.startsWith('video/')) {
+        // Simple placeholder for video context (could extract first frame in future)
+        console.warn("Video context upload: Extracting first frame would require a video element. Sending first valid chunk if possible.");
+        // For now, treat as image if it's a small snapshot or just warn.
+        alert("Video import is currently limited to static snapshots. Please share an image for context.");
+    }
+  }, [status]);
 
   const cancelMedia = useCallback((id: string) => {
       setMediaQueue(prev => prev.filter(m => m.id !== id));
@@ -467,5 +512,5 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     }
   }, [isMuted]);
 
-  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, taskPlan };
+  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia, taskPlan, uploadStaticContext };
 }
