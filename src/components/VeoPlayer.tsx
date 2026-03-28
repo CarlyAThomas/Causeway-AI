@@ -32,8 +32,8 @@ export default function VeoPlayer({ videoUrl, isLoading }: { videoUrl?: string |
             </svg>
           </div>
           <div className="space-y-1 text-center">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">Instructional Sequence</p>
-              <h3 className="text-sm font-medium text-white/90">Waiting for Video</h3>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">Interactive AI Demonstration</p>
+              <h3 className="text-sm font-medium text-white/90">Ask Gemini for a Guide</h3>
           </div>
         </div>
       )}

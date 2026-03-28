@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { GeminiLiveClient, GeminiLiveStatus } from "../gemini/geminiLiveClient";
 import { floatTo16BitPCM, arrayBufferToBase64 } from "../audio/pcm-utils";
 import { PCMPlayer } from "../audio/audio-manager";
-
 import { MediaRequest } from "@/types";
 
 /**
@@ -15,9 +14,13 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0);
   const [mediaQueue, setMediaQueue] = useState<MediaRequest[]>([]);
+  
   const clientRef = useRef<GeminiLiveClient | null>(null);
+  const isMutedRef = useRef(isMuted);
+  const isAiTurnLockedRef = useRef(true);
   const audioContextRef = useRef<AudioContext | null>(null);
   const pcmPlayerRef = useRef<PCMPlayer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -29,7 +32,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
     
-    // Initialize Audio Context and PCM Player (24kHz for AI Voice)
+    // Initialize Audio Context and PCM Player (16kHz context, 24kHz for AI Voice)
     const audioContext = new AudioContext({ sampleRate: 16000 });
     audioContextRef.current = audioContext;
     pcmPlayerRef.current = new PCMPlayer(audioContext, 24000);
@@ -37,7 +40,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
     clientRef.current = new GeminiLiveClient(
       { 
         apiKey, 
-        model: "gemini-3.1-flash-live-preview", // Must be this model for tools via web sockets!
+        model: "gemini-3.1-flash-live-preview", 
         systemInstruction: `
           You are a professional task assistant. 
           Always respond in English.
@@ -48,10 +51,9 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         `.trim()
       },
       (msg) => {
-        // PINPOINT AUDIT: Printing the full raw packet to identify hidden transcripts
         console.log("Gemini Live: RAW_PACKET", JSON.stringify(msg, null, 2));
         
-        // Handle tool calls
+        // Handle tool calls (Video Generation Requests)
         if (msg.toolCall || msg.tool_call) {
             const toolCall = msg.toolCall || msg.tool_call;
             const functionCalls = toolCall.functionCalls || toolCall.function_calls;
@@ -60,12 +62,12 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 for (const call of functionCalls) {
                     console.log(`🟡 TOOL TRIGGERED in Hook: ${call.name}`, call.args);
                     
-                    const isVideo = call.name.includes('video');
                     const newRequestId = Math.random().toString(36).substring(7);
                     
+                    // Add to Media Queue
                     setMediaQueue(prev => [{
                         id: newRequestId,
-                        type: 'video', // Assume video for these specific Veo tools
+                        type: 'video',
                         status: 'pending',
                         prompt: call.args.prompt || 'Visual Guide Request',
                         timestamp: Date.now()
@@ -83,48 +85,47 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                             
                             let attempts = 0;
                             const pollInterval = setInterval(async () => {
-                              // Cancel check: if item is no longer generating (or removed), stop polling
-                              let currentStatus = 'generating';
-                              setMediaQueue(prev => {
-                                const m = prev.find(item => item.id === newRequestId);
-                                if (!m || m.status === 'cancelled') {
-                                    currentStatus = 'cancelled';
-                                }
-                                return prev;
-                              });
+                               // Check if item was cancelled/removed before polling
+                               let cancelled = false;
+                               setMediaQueue(prev => {
+                                 const m = prev.find(item => item.id === newRequestId);
+                                 if (!m || m.status === 'cancelled') cancelled = true;
+                                 return prev;
+                               });
 
-                              if (currentStatus === 'cancelled') {
-                                  clearInterval(pollInterval);
-                                  return;
-                              }
+                               if (cancelled) {
+                                   clearInterval(pollInterval);
+                                   return;
+                               }
 
-                              attempts++;
-                              const pollRes = await fetch('/api/poll-video', {
-                                method: 'POST',
-                                body: JSON.stringify({ operationName: data.operationName }),
-                                headers: { 'Content-Type': 'application/json' }
-                              });
-                              
-                              if (pollRes.ok) {
-                                 const pollData = await pollRes.json();
-                                 if (pollData.done) {
-                                    clearInterval(pollInterval);
-                                    
-                                    const finalUri = pollData.data?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || pollData.data?.response?.generatedVideo?.uri || pollData.data?.response?.videoUri;
-                                    
-                                    setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
-                                        ...m, 
-                                        status: 'completed', 
-                                        url: finalUri 
-                                    } : m));
-                                 }
-                              }
-                              
-                              if (attempts > 30) {
-                                  clearInterval(pollInterval);
-                                  setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
-                              }
-                            }, 30000); // 30 sec
+                               attempts++;
+                               const pollRes = await fetch('/api/poll-video', {
+                                 method: 'POST',
+                                 body: JSON.stringify({ operationName: data.operationName }),
+                                 headers: { 'Content-Type': 'application/json' }
+                               });
+                               
+                               if (pollRes.ok) {
+                                  const pollData = await pollRes.json();
+                                  if (pollData.done) {
+                                     clearInterval(pollInterval);
+                                     const finalUri = pollData.data?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || 
+                                                     pollData.data?.response?.generatedVideo?.uri || 
+                                                     pollData.data?.response?.videoUri;
+                                     
+                                     setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { 
+                                         ...m, 
+                                         status: 'completed', 
+                                         url: finalUri 
+                                     } : m));
+                                  }
+                               }
+                               
+                               if (attempts > 30) {
+                                   clearInterval(pollInterval);
+                                   setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
+                               }
+                            }, 30000);
                          } else {
                             setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                          }
@@ -136,42 +137,16 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                         setMediaQueue(prev => prev.map(m => m.id === newRequestId ? { ...m, status: 'failed' } : m));
                     });
 
-                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, notify the user it will take a few minutes. It will appear in their media gallery.");
+                    clientRef.current?.sendToolResponse(call.id, call.name, "video generation started, it will appear in the media gallery.");
                 }
             }
         }
         
-        // Robust handling for both camelCase and snake_case response variants
         const serverContent = msg.serverContent || msg.server_content;
-        
         if (serverContent) {
             const modelTurn = serverContent.modelTurn || serverContent.model_turn;
             if (modelTurn?.parts) {
                 modelTurn.parts.forEach((p: any) => {
-                    // DEEP AUDIT: Log all part types to find implicit transcripts
-                    console.log("Gemini Live PART AUDIT:", p);
-
-                    // Standard Text or Implicit Transcript Variants
-                    const transcript = p.text || p.transcript || p.interim_transcript || p.interimResult;
-                    if (transcript) {
-                        setMessages(prev => [...prev.slice(-15), { 
-                            id: Math.random().toString(36), 
-                            role: 'ai', 
-                            text: transcript, 
-                            agent: 'Gemini (Audit)' 
-                        }]);
-                    }
-
-                    // Thinking Capture (Implicit reasoning?)
-                    if (p.thought || p.thought_process) {
-                        setMessages(prev => [...prev.slice(-15), { 
-                            id: Math.random().toString(36), 
-                            role: 'ai', 
-                            text: `[THINKING]: ${p.thought || p.thought_process}`, 
-                            agent: 'Gemini (Thinking)' 
-                        }]);
-                    }
-
                     // Handle Audio Responses
                     const audioData = p.inlineData?.data || p.inline_data?.data;
                     if (audioData && pcmPlayerRef.current) {
@@ -182,24 +157,18 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 });
             }
 
-            // Search Grounding Metadata
-            if (serverContent.groundingMetadata || serverContent.grounding_metadata) {
-                console.log("Gemini Live GROUNDING AUDIT:", serverContent.groundingMetadata || serverContent.grounding_metadata);
-            }
-
-            // [FIXED] Capture Gemini 3.1 Real-time Transcription (Appending instead of new blocks)
+            // Real-time AI Transcription (Turn-Locked for clarity)
             const transcription = serverContent.outputTranscription || serverContent.output_transcription;
             if (transcription?.text) {
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
-                    if (lastMsg && lastMsg.role === 'ai' && lastMsg.agent === 'Gemini Live') {
-                        // Append to the existing AI message block
+                    if (lastMsg && lastMsg.role === 'ai' && !isAiTurnLockedRef.current) {
                         return [
                             ...prev.slice(0, -1),
                             { ...lastMsg, text: lastMsg.text + transcription.text }
                         ];
                     } else {
-                        // Create a new AI message block
+                        isAiTurnLockedRef.current = false;
                         return [...prev.slice(-15), { 
                             id: Math.random().toString(36), 
                             role: 'ai', 
@@ -210,9 +179,8 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
                 });
             }
 
-            // Handle turn complete signals
             if (serverContent.turnComplete || serverContent.turn_complete) {
-                console.log("Gemini Live TURN COMPLETE");
+                isAiTurnLockedRef.current = true;
                 setStatus('listening');
             }
         }
@@ -226,7 +194,7 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
 
     clientRef.current.connect();
 
-    // Initialize Local Speech Recognition (for User Speech-to-Text in Sidebar)
+    // Local STT for Sidebar
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
         const recognition = new Recognition();
@@ -235,123 +203,84 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
         recognition.lang = 'en-US';
 
         recognition.onresult = (event: any) => {
-            const transcript = Array.from(event.results)
-                .map((result: any) => result[0])
-                .map((result: any) => result.transcript)
-                .join('');
-            
+            let transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                transcript += event.results[i][0].transcript;
+            }
+            if (isMutedRef.current) return;
+            isAiTurnLockedRef.current = true;
+            const isFinal = event.results[event.results.length - 1].isFinal;
+
             setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
-                if (lastMsg && lastMsg.role === 'user') {
-                    // Update the existing interim user message
-                    return [
-                        ...prev.slice(0, -1),
-                        { ...lastMsg, text: transcript }
-                    ];
+                if (lastMsg && lastMsg.role === 'user' && lastMsg.id === 'user-interim') {
+                    return [...prev.slice(0, -1), { ...lastMsg, text: transcript }];
                 } else {
-                    // Create a new user message block
-                    return [...prev.slice(-15), { 
-                        id: Math.random().toString(36), 
-                        role: 'user', 
-                        text: transcript, 
-                        agent: 'You' 
-                    }];
+                    return [...prev.slice(-15), { id: 'user-interim', role: 'user', text: transcript, agent: 'You' }];
                 }
             });
 
-            // If it's final, we can give it a unique ID to "lock" it
-            if (event.results[0].isFinal) {
+            if (isFinal) {
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
                     if (lastMsg && lastMsg.id === 'user-interim') {
-                        return [
-                            ...prev.slice(0, -1),
-                            { ...lastMsg, id: Math.random().toString(36) }
-                        ];
+                        return [...prev.slice(0, -1), { ...lastMsg, id: Math.random().toString(36) }];
                     }
                     return prev;
                 });
             }
         };
 
-        recognition.onerror = (err: any) => console.error("Speech Recognition Error:", err);
+        recognition.onerror = (err: any) => console.error("STT Error:", err);
         recognitionRef.current = recognition;
         recognition.start();
     }
 
-    // Start Vision Sampling (Sample frame every 500ms)
     intervalRef.current = setInterval(() => {
         if (videoRef.current && clientRef.current) {
             clientRef.current.sendVideoFrame(videoRef.current);
         }
     }, 500);
 
-    // Start Real-time Mic Capture (Modern AudioWorklet)
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
-        
-        // Initialize the AudioWorklet module
         await audioContext.audioWorklet.addModule('/worklets/pcm-processor.js');
-        
         const source = audioContext.createMediaStreamSource(stream);
         const workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
-        
         source.connect(workletNode);
         workletNode.connect(audioContext.destination);
         
-        // Handle audio data from the worklet thread
         workletNode.port.onmessage = (event) => {
+            if (isMutedRef.current) return setVolume(0);
             const inputData = event.data;
-            
-            // Calculate RMS Volume for the visualizer
             let sum = 0;
-            for (let i = 0; i < inputData.length; i++) {
-                sum += inputData[i] * inputData[i];
-            }
+            for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
             const rms = Math.sqrt(sum / inputData.length);
-            // Amplify and smooth the volume (normalized 0.0 - 1.0)
             setVolume(prev => prev * 0.7 + Math.min(1, rms * 10) * 0.3);
-
             const pcmBuffer = floatTo16BitPCM(inputData);
             const base64Pcm = arrayBufferToBase64(pcmBuffer);
-            
-            if (clientRef.current) {
-                clientRef.current.sendAudioChunk(base64Pcm);
-            }
+            if (clientRef.current) clientRef.current.sendAudioChunk(base64Pcm);
         };
     } catch (err) {
-        console.error("Critical: Could not access microphone or load worklet:", err);
+        console.error("Mic Access Error:", err);
         setStatus('error');
     }
-
   }, [videoRef]);
 
   const disconnect = useCallback(() => {
-    if (clientRef.current) {
-        clientRef.current.disconnect();
-        clientRef.current = null;
-    }
-    if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-    }
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
-    }
-    if (audioContextRef.current) {
-        audioContextRef.current.close().catch(console.error);
-        audioContextRef.current = null;
-    }
-    if (pcmPlayerRef.current) {
-        pcmPlayerRef.current.stop();
-        pcmPlayerRef.current = null;
-    }
-    if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        recognitionRef.current = null;
-    }
+    if (clientRef.current) clientRef.current.disconnect();
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    if (audioContextRef.current) audioContextRef.current.close().catch(console.error);
+    if (pcmPlayerRef.current) pcmPlayerRef.current.stop();
+    if (recognitionRef.current) recognitionRef.current.stop();
+    clientRef.current = null;
+    intervalRef.current = null;
+    streamRef.current = null;
+    audioContextRef.current = null;
+    pcmPlayerRef.current = null;
+    recognitionRef.current = null;
     setVolume(0);
     setStatus('idle');
   }, []);
@@ -360,5 +289,14 @@ export function useGeminiLive(videoRef: React.RefObject<HTMLVideoElement | null>
       setMediaQueue(prev => prev.filter(m => m.id !== id));
   }, []);
 
-  return { messages, status, isSpeaking, volume, connect, disconnect, mediaQueue, cancelMedia };
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+    if (streamRef.current) {
+        streamRef.current.getAudioTracks().forEach(track => {
+            track.enabled = !isMuted;
+        });
+    }
+  }, [isMuted]);
+
+  return { messages, status, isSpeaking, volume, isMuted, setIsMuted, connect, disconnect, mediaQueue, cancelMedia };
 }

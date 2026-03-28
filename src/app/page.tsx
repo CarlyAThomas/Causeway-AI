@@ -11,19 +11,31 @@ import { useGeminiLive } from "@/lib/hooks/useGeminiLive";
 export default function Home() {
   const [isCameraMinimized, setIsCameraMinimized] = useState(false);
   const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
+  const [isCameraOff, setIsCameraOff] = useState(false);
   const constraintsRef = useRef(null);
   
   // Ref for the main camera element to provide vision context to Gemini
   const mainVideoRef = useRef<HTMLVideoElement>(null);
 
-  const { messages, status, isSpeaking, volume, connect, disconnect, mediaQueue, cancelMedia } = useGeminiLive(mainVideoRef);
+  const { 
+    messages, 
+    status, 
+    isSpeaking, 
+    volume, 
+    isMuted, 
+    setIsMuted, 
+    connect, 
+    disconnect, 
+    mediaQueue, 
+    cancelMedia 
+  } = useGeminiLive(mainVideoRef);
 
   const activeMedia = mediaQueue.find(m => m.id === activeMediaId);
 
   // Auto-activate a new media item if we don't have one active and a new one arrives
   useEffect(() => {
     if (!activeMediaId && mediaQueue.length > 0) {
-      // setActiveMediaId(mediaQueue[0].id); // Optional: we can let user click it instead
+      // setActiveMediaId(mediaQueue[0].id);
     }
   }, [mediaQueue, activeMediaId]);
 
@@ -40,6 +52,13 @@ export default function Home() {
   const recenterCamera = () => {
     setIsCameraMinimized(false);
     setActiveMediaId(null);
+  };
+
+  const showVisualGuide = () => {
+    if (mediaQueue.length > 0 && !activeMediaId) {
+        setActiveMediaId(mediaQueue[0].id);
+    }
+    setIsCameraMinimized(true);
   };
 
   return (
@@ -86,7 +105,13 @@ export default function Home() {
                   <VeoPlayer videoUrl={activeMedia.url} isLoading={activeMedia.status !== 'completed'} />
                 ) : (
                   <div className={`w-full h-full ${isCameraMinimized ? 'hidden' : 'block'}`}>
-                    <CameraStream ref={mainVideoRef} />
+                    <CameraStream 
+                        ref={mainVideoRef} 
+                        isMuted={isMuted} 
+                        onToggleMute={() => setIsMuted(!isMuted)} 
+                        isCameraOff={isCameraOff} 
+                        onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+                    />
                   </div>
                 )}
               </div>
@@ -114,8 +139,11 @@ export default function Home() {
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
           </button>
           
-          <button className="bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95">
-            Mic Settings
+          <button 
+            onClick={showVisualGuide}
+            className="group relative bg-accent h-14 rounded-full border border-white/5 text-[11px] font-bold uppercase tracking-widest hover:bg-accent/80 transition-all active:scale-95 overflow-hidden"
+          >
+            <span className="relative z-10">Visual Guide</span>
           </button>
           
           <button 
@@ -162,7 +190,13 @@ export default function Home() {
         className="fixed top-8 right-8 w-64 md:w-80 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] border-2 border-white/10 rounded-3xl overflow-hidden group/pip z-[100] cursor-grab will-change-transform translate-z-0 bg-black"
       >
         <div className="relative">
-          <CameraStream isMinimized={true} />
+          <CameraStream 
+            isMinimized={true} 
+            isMuted={isMuted} 
+            onToggleMute={() => setIsMuted(!isMuted)} 
+            isCameraOff={isCameraOff} 
+            onToggleCamera={() => setIsCameraOff(!isCameraOff)} 
+          />
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/pip:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[3px] gap-3">
             <button 
               onClick={recenterCamera}
